@@ -396,12 +396,18 @@ def psp_umd():
     r_stick, r_pin, r_lab = 0.31, 0.028, 0.26   # white centre sticker, its pin hole, label starts under it
     R_open = R_d + 0.012          # window opening
     slot_h = 0.30                 # back: laser slot half-height (round inner end about the hub)
-    taper = 8                     # degrees the circle continues below the centre line
+    taper = 10                    # degrees the circle continues below the centre line
+    R_b, rc = 3.0, 0.26           # shallow bottom curve (radius, lowest point at base_y) and corner fillets
     seg = 72
     xs, ys = R_s * math.cos(math.radians(taper)), -R_s * math.sin(math.radians(taper))
+    cb = base_y + R_b             # centre of the bottom arc (on the y axis)
+    # fillet of radius rc tangent to the straight side x = xs and the bottom arc
+    fy = cb - math.sqrt((R_b - rc) ** 2 - (xs - rc) ** 2)
+    f_ang = math.degrees(math.atan2(fy - cb, xs - rc))        # bottom-arc angle where the fillet meets it
     top = [(R_s * math.cos(math.radians(a)), R_s * math.sin(math.radians(a))) for a in range(180 + taper, -taper - 1, -4)]
-    outline = ([(xs, ys)] + [(xs, base_y + rc)] + arc(xs - rc, base_y + rc, rc, 0, -90, 6)[1:]
-               + arc(-xs + rc, base_y + rc, rc, -90, -180, 6)[1:] + [(-xs, ys)] + top[1:-1])
+    outline = ([(xs, ys), (xs, fy)] + arc(xs - rc, fy, rc, 0, f_ang, 6)[1:]
+               + arc(0, cb, R_b, f_ang, -180 - f_ang, 16)[1:]
+               + arc(-xs + rc, fy, rc, -180 - f_ang, -180, 6)[1:] + [(-xs, ys)] + top[1:-1])
     outline = outline[::-1]
     inner = offset_outline(outline, bev)
     bb = bbox(outline)
@@ -487,9 +493,9 @@ def psp_umd():
     for rr, col, w in [(R_open + 0.03, (178, 180, 186), 5), (R_open + 0.006, (120, 122, 128), 3)]:
         s_ = rr * scale
         d.ellipse([c[0] - s_, c[1] - s_, c[0] + s_, c[1] + s_], outline=col + (255,), width=w)
-    d.text(pf(-0.64, -0.83), "PSP", fill=mark + (255,), font=font(int(0.085 * scale), italic=True), anchor="mm")
+    d.text(pf(-0.64, -0.80), "PSP", fill=mark + (255,), font=font(int(0.085 * scale), italic=True), anchor="mm")
     # controller mark: a small pad silhouette, lower right
-    gx, gy = pf(0.64, -0.83)
+    gx, gy = pf(0.64, -0.775)
     gw, gh = 0.075 * scale, 0.022 * scale
     d.rounded_rectangle([gx - gw, gy - gh, gx + gw, gy + gh], radius=gh, fill=mark + (255,))
     for sx in (-1, 1):
