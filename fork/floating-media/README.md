@@ -29,3 +29,19 @@ Settings → Theme → Reflection effect → cycle to **Floating media**
 `INVERT_X` / `INVERT_Y` if tilt feels backwards, `TILT_MAX_YAW` / `TILT_MAX_PITCH`
 for how far it turns, `SPRING` / `DAMP` / `GYRO_KICK` for the wobble, and
 `RECENTER` for how fast a new holding angle becomes "level".
+
+## Side-by-side install ("RetroFlow Float")
+`make_sidebyside.py` turns the patched build into a separate app so the normal
+RetroFlow install is never touched:
+
+    python3 make_sidebyside.py <unzipped RetroFlow VPK> ../../src/index.lua DATA RetroFlowFloat.vpk
+
+- Title ID `RFFLOAT01`, name "RetroFlow Float", icon with a FLOAT badge.
+- Own data folder `ux0:/data/RetroFlowFloat/` (settings, caches, favourites,
+  collections, overrides). First launch copies these from `ux0:/data/RetroFlow/`,
+  which is only ever read.
+- Shared, read from RetroFlow: ROMS, COVERS, BACKGROUNDS, ICONS, WALLPAPER, MUSIC.
+  Covers downloaded from either app go into the shared COVERS folder.
+- Recovery/reset in RetroFlow Float only affects RetroFlowFloat.
+- Adrenaline games still launch through the shared RetroFlow Adrenaline Launcher.
+- To remove it: delete the RetroFlow Float bubble and `ux0:/data/RetroFlowFloat/`.
