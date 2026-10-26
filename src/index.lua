@@ -13862,7 +13862,160 @@ local function DrawCover_List(icon)
 end
 
 
-local function DrawCover(x, y, text, icon, sel, apptype, cur_p)
+-- ==========================================================================
+-- FLOATING PHYSICAL MEDIA (fork)
+-- Reflections setting: 0 = off, 1 = reflections, 2 = floating physical media.
+-- Vita / PSP / PS1 games are drawn as a game card / UMD / disc with the cover
+-- art as the label; every other system keeps its box but floats as well.
+-- The accelerometer tilts the media and the gyro gives it a springy wobble.
+-- Everything lives in one global table to stay clear of Lua's local limits.
+-- ==========================================================================
+FLOAT = {
+    -- Tuning (flip the INVERT flags if tilting feels backwards on hardware)
+    INVERT_X = false,      -- left/right tilt -> yaw
+    INVERT_Y = false,      -- forward/back tilt -> pitch
+    TILT_MAX_YAW = 22,     -- degrees of turn at full tilt
+    TILT_MAX_PITCH = 14,
+    TILT_RANGE = 0.35,     -- accelerometer change (g) that counts as "full tilt"
+    RECENTER = 0.6,        -- how quickly a new holding angle becomes "level"
+    SPRING = 60,           -- spring stiffness (higher = snappier)
+    DAMP = 9,              -- damping (lower = wobblier)
+    GYRO_KICK = 4,         -- how much a quick twist flicks the media
+    ANGLE_LIMIT = 35,
+    GLOSS_STEPS = 9,
+    HALF = { vita = 0.925, psp = 0.89, psx = 0.925 },
+
+    -- State
+    loaded = false, media = {}, timer = Timer.new(), last_ms = 0, t = 0,
+    sensors = nil, base_ax = nil, base_ay = nil,
+    ang_x = 0, ang_y = 0, vel_x = 0, vel_y = 0,
+    deferred = nil,
+}
+
+function FLOAT.load()
+    if FLOAT.loaded then return end
+    FLOAT.shadow_img = Graphics.loadImage("app0:/DATA/float_shadow.png")
+    FLOAT.shadow = Render.loadObject("app0:/DATA/float_shadow.obj", FLOAT.shadow_img)
+    FLOAT.gloss_img = Graphics.loadImage("app0:/DATA/float_gloss.png")
+    Graphics.setImageFilters(FLOAT.gloss_img, FILTER_LINEAR, FILTER_LINEAR)
+    for _, kind in ipairs({ "vita", "psp", "psx" }) do
+        local m = { gloss = {} }
+        m.body_img = Graphics.loadImage("app0:/DATA/float_" .. kind .. "_body.png")
+        Graphics.setImageFilters(m.body_img, FILTER_LINEAR, FILTER_LINEAR)
+        m.body = Render.loadObject("app0:/DATA/float_" .. kind .. "_body.obj", m.body_img)
+        m.label = Render.loadObject("app0:/DATA/float_" .. kind .. "_label.obj", imgCoverTmp)
+        for i = 0, FLOAT.GLOSS_STEPS - 1 do
+            m.gloss[i] = Render.loadObject("app0:/DATA/float_" .. kind .. "_gloss" .. i .. ".obj", FLOAT.gloss_img)
+        end
+        FLOAT.media[kind] = m
+    end
+    FLOAT.loaded = true
+end
+
+function FLOAT.sensors_on()
+    if FLOAT.sensors == nil then
+        FLOAT.sensors = false
+        if Controls.enableGyro and Controls.readAccel and Controls.readGyro then
+            FLOAT.sensors = pcall(Controls.enableGyro)
+        end
+    end
+    return FLOAT.sensors
+end
+
+function FLOAT.sensors_off()
+    if FLOAT.sensors == true and Controls.disableGyro then
+        pcall(Controls.disableGyro)
+    end
+    FLOAT.sensors = nil
+    FLOAT.base_ax = nil
+    FLOAT.ang_x, FLOAT.ang_y, FLOAT.vel_x, FLOAT.vel_y = 0, 0, 0, 0
+end
+
+function FLOAT.clamp(v, lo, hi)
+    if v < lo then return lo elseif v > hi then return hi end
+    return v
+end
+
+-- Call once per frame before drawing covers
+function FLOAT.update()
+    FLOAT.load()
+    local now = Timer.getTime(FLOAT.timer)
+    local dt = FLOAT.clamp((now - FLOAT.last_ms) / 1000, 0, 0.1)
+    FLOAT.last_ms = now
+    if dt <= 0 then return end
+    FLOAT.t = FLOAT.t + dt
+
+    local tx, ty, gx, gy = 0, 0, 0, 0
+    if FLOAT.sensors_on() then
+        local ok, ax, ay = pcall(Controls.readAccel)
+        if ok and ax and ay then
+            if FLOAT.base_ax == nil then FLOAT.base_ax, FLOAT.base_ay = ax, ay end
+            -- Drift the "level" reference so any comfortable holding angle feels neutral
+            local k = math.min(1, FLOAT.RECENTER * dt)
+            FLOAT.base_ax = FLOAT.base_ax + (ax - FLOAT.base_ax) * k
+            FLOAT.base_ay = FLOAT.base_ay + (ay - FLOAT.base_ay) * k
+            tx = FLOAT.clamp((ax - FLOAT.base_ax) / FLOAT.TILT_RANGE, -1, 1)
+            ty = FLOAT.clamp((ay - FLOAT.base_ay) / FLOAT.TILT_RANGE, -1, 1)
+        end
+        local ok2, wx, wy = pcall(Controls.readGyro)
+        if ok2 and wx and wy then gx, gy = wx, wy end
+    end
+    if FLOAT.INVERT_X then tx = -tx; gy = -gy end
+    if FLOAT.INVERT_Y then ty = -ty; gx = -gx end
+
+    -- Damped spring towards the tilt target, kicked by gyro angular velocity
+    local target_y = tx * FLOAT.TILT_MAX_YAW
+    local target_x = -ty * FLOAT.TILT_MAX_PITCH
+    local acc_y = FLOAT.SPRING * (target_y - FLOAT.ang_y) - FLOAT.DAMP * FLOAT.vel_y + math.deg(gy) * FLOAT.GYRO_KICK
+    local acc_x = FLOAT.SPRING * (target_x - FLOAT.ang_x) - FLOAT.DAMP * FLOAT.vel_x + math.deg(gx) * FLOAT.GYRO_KICK
+    FLOAT.vel_y = FLOAT.vel_y + acc_y * dt
+    FLOAT.vel_x = FLOAT.vel_x + acc_x * dt
+    FLOAT.ang_y = FLOAT.clamp(FLOAT.ang_y + FLOAT.vel_y * dt, -FLOAT.ANGLE_LIMIT, FLOAT.ANGLE_LIMIT)
+    FLOAT.ang_x = FLOAT.clamp(FLOAT.ang_x + FLOAT.vel_x * dt, -FLOAT.ANGLE_LIMIT, FLOAT.ANGLE_LIMIT)
+end
+
+-- side: 0 = selected (centre), 1 = fully to the side. Returns y, z, rx, ry, rz offsets.
+function FLOAT.offsets(side, index)
+    local w = 1 - math.min(side or 1, 1)
+    local ph = (index or 0) * 1.37
+    local t = FLOAT.t
+    local follow = 0.35 + 0.65 * w
+    local y = 0.08 + 0.14 * w + math.sin(t * 1.7 + ph) * (0.025 + 0.02 * w)
+    local z = 0.30 * w
+    local rx = FLOAT.ang_x * follow + math.sin(t * 1.1 + ph) * 1.5
+    local ry = FLOAT.ang_y * follow + math.sin(t * 0.8 + ph) * (2 + 4 * w)
+    local rz = math.sin(t * 1.3 + ph) * 1.2
+    return y, z, rx, ry, rz
+end
+
+function FLOAT.media_kind(apptype)
+    if apptype == 1 then return "vita"
+    elseif apptype == 2 then return "psp"
+    elseif apptype == 3 then return "psx"
+    end
+    return nil
+end
+
+function FLOAT.draw_shadow(px, py, pz, ry)
+    Render.drawModel(FLOAT.shadow, px, py + 0.003, pz, 0, ry, 0)
+end
+
+function FLOAT.draw_media(kind, icon, px, py, pz, fy, rx, ry, rz, side)
+    local m = FLOAT.media[kind]
+    FLOAT.draw_shadow(px, py, pz, ry)
+    local cy = py + FLOAT.HALF[kind] + fy
+    Render.drawModel(m.body, px, cy, pz, rx, ry, rz)
+    Render.useTexture(m.label, icon)
+    Render.drawModel(m.label, px, cy, pz, rx, ry, rz)
+    if side < 0.5 then
+        local n = FLOAT.GLOSS_STEPS - 1
+        local g = math.floor(FLOAT.clamp((ry / 26 + 1) / 2, 0, 1) * n + 0.5)
+        Render.drawModel(m.gloss[g], px, cy, pz, rx, ry, rz)
+    end
+end
+-- ==========================================================================
+
+function FLOAT.draw_cover_real(x, y, text, icon, sel, apptype, cur_p)
     load_cover_models_for_app_type(apptype)
 
     rot = 0
@@ -14077,8 +14230,20 @@ local function DrawCover(x, y, text, icon, sel, apptype, cur_p)
     end
     
     Render.setCamera(camX, 0, 0, 0.0, 0.0, 0.0)
-    
-    
+
+    -- FLOATING PHYSICAL MEDIA (fork)
+    local fl_y, fl_z, fl_rx, fl_ry, fl_rz = 0, 0, 0, 0, 0
+    if setReflections == 2 and hideBoxes <= 0 then
+        fl_y, fl_z, fl_rx, fl_ry, fl_rz = FLOAT.offsets(abs_side_factor, cur_p)
+        local kind = FLOAT.media_kind(apptype)
+        if kind then
+            FLOAT.draw_media(kind, icon, x + extrax, y + extray, -5 - extraz - zoom + fl_z,
+                fl_y, fl_rx, math.deg(rot) + fl_ry, fl_rz, abs_side_factor)
+            return
+        end
+        FLOAT.draw_shadow(x + extrax, y + extray, -5 - extraz - zoom + fl_z, math.deg(rot) + fl_ry)
+    end
+
     function closestBox()
 
         if apptype == 43 or apptype == 47 then
@@ -14144,114 +14309,132 @@ local function DrawCover(x, y, text, icon, sel, apptype, cur_p)
             -- PSVita Boxes
             if setReflections == 1 then
                 Render.useTexture(modCover, icon)
-                Render.drawModel(modCover, x + extrax, y + extray, -5 - extraz - zoom, 0, math.deg(rot), 0)
-                Render.drawModel(modBox, x + extrax, y + extray, -5 - extraz - zoom, 0, math.deg(rot), 0)
+                Render.drawModel(modCover, x + extrax, y + extray + fl_y, -5 - extraz - zoom + fl_z, fl_rx, math.deg(rot) + fl_ry, fl_rz)
+                Render.drawModel(modBox, x + extrax, y + extray + fl_y, -5 - extraz - zoom + fl_z, fl_rx, math.deg(rot) + fl_ry, fl_rz)
             else
                 Render.useTexture(modCoverNoref, icon)
-                Render.drawModel(modCoverNoref, x + extrax, y + extray, -5 - extraz - zoom, 0, math.deg(rot), 0)
-                Render.drawModel(modBoxNoref, x + extrax, y + extray, -5 - extraz - zoom, 0, math.deg(rot), 0)
+                Render.drawModel(modCoverNoref, x + extrax, y + extray + fl_y, -5 - extraz - zoom + fl_z, fl_rx, math.deg(rot) + fl_ry, fl_rz)
+                Render.drawModel(modBoxNoref, x + extrax, y + extray + fl_y, -5 - extraz - zoom + fl_z, fl_rx, math.deg(rot) + fl_ry, fl_rz)
             end
         elseif apptype==2 then
             if setReflections == 1 then
                 Render.useTexture(modCoverPSP, icon)
-                Render.drawModel(modCoverPSP, x + extrax, y + extray, -5 - extraz - zoom, 0, math.deg(rot), 0)
-                Render.drawModel(modBoxPSP, x + extrax, y + extray, -5 - extraz - zoom, 0, math.deg(rot), 0)
+                Render.drawModel(modCoverPSP, x + extrax, y + extray + fl_y, -5 - extraz - zoom + fl_z, fl_rx, math.deg(rot) + fl_ry, fl_rz)
+                Render.drawModel(modBoxPSP, x + extrax, y + extray + fl_y, -5 - extraz - zoom + fl_z, fl_rx, math.deg(rot) + fl_ry, fl_rz)
             else
                 Render.useTexture(modCoverPSPNoref, icon)
-                Render.drawModel(modCoverPSPNoref, x + extrax, y + extray, -5 - extraz - zoom, 0, math.deg(rot), 0)
-                Render.drawModel(modBoxPSPNoref, x + extrax, y + extray, -5 - extraz - zoom, 0, math.deg(rot), 0)
+                Render.drawModel(modCoverPSPNoref, x + extrax, y + extray + fl_y, -5 - extraz - zoom + fl_z, fl_rx, math.deg(rot) + fl_ry, fl_rz)
+                Render.drawModel(modBoxPSPNoref, x + extrax, y + extray + fl_y, -5 - extraz - zoom + fl_z, fl_rx, math.deg(rot) + fl_ry, fl_rz)
             end
         elseif apptype==3 then
             if setReflections == 1 then
                 Render.useTexture(modCoverPSX, icon)
-                Render.drawModel(modCoverPSX, x + extrax, y + extray, -5 - extraz - zoom, 0, math.deg(rot), 0)
-                Render.drawModel(modBoxPSX, x + extrax, y + extray, -5 - extraz - zoom, 0, math.deg(rot), 0)
+                Render.drawModel(modCoverPSX, x + extrax, y + extray + fl_y, -5 - extraz - zoom + fl_z, fl_rx, math.deg(rot) + fl_ry, fl_rz)
+                Render.drawModel(modBoxPSX, x + extrax, y + extray + fl_y, -5 - extraz - zoom + fl_z, fl_rx, math.deg(rot) + fl_ry, fl_rz)
             else
                 Render.useTexture(modCoverPSXNoref, icon)
-                Render.drawModel(modCoverPSXNoref, x + extrax, y + extray, -5 - extraz - zoom, 0, math.deg(rot), 0)
-                Render.drawModel(modBoxPSXNoref, x + extrax, y + extray, -5 - extraz - zoom, 0, math.deg(rot), 0)
+                Render.drawModel(modCoverPSXNoref, x + extrax, y + extray + fl_y, -5 - extraz - zoom + fl_z, fl_rx, math.deg(rot) + fl_ry, fl_rz)
+                Render.drawModel(modBoxPSXNoref, x + extrax, y + extray + fl_y, -5 - extraz - zoom + fl_z, fl_rx, math.deg(rot) + fl_ry, fl_rz)
             end
         elseif apptype==5 or apptype==6 or apptype==7 or apptype==8 or apptype==9 or apptype==10 or apptype==12 or apptype==17 or apptype==18 or apptype==19 or apptype==20 or apptype==21 or apptype==34 or apptype==35 or apptype==36 or apptype==38 or apptype==43 or apptype==44 or apptype==45 or apptype==46 or apptype==47 then
             -- Get closest cover: N64, Snes, Nes, GBA, GBC, GB, Sega CD, TG16, TG CD, PCE, PCE CD, Amiga, FBA, Mame 2003, Mame 2000, nds, atari st, dos, easyrpg
             if setReflections == 1 then
                 Render.useTexture(closestBox(), icon)
-                Render.drawModel(closestBox(), x + extrax, y + extray, -5 - extraz - zoom, 0, math.deg(rot), 0)
+                Render.drawModel(closestBox(), x + extrax, y + extray + fl_y, -5 - extraz - zoom + fl_z, fl_rx, math.deg(rot) + fl_ry, fl_rz)
             else
                 Render.useTexture(closestBoxNoref(), icon)
-                Render.drawModel(closestBoxNoref(), x + extrax, y + extray, -5 - extraz - zoom, 0, math.deg(rot), 0)
+                Render.drawModel(closestBoxNoref(), x + extrax, y + extray + fl_y, -5 - extraz - zoom + fl_z, fl_rx, math.deg(rot) + fl_ry, fl_rz)
             end
         elseif  apptype==23 or apptype==24 or apptype==37 or apptype==40 then
             if setReflections == 1 then
                 Render.useTexture(modCoverNES, icon)
-                Render.drawModel(modCoverNES, x + extrax, y + extray, -5 - extraz - zoom, 0, math.deg(rot), 0)
+                Render.drawModel(modCoverNES, x + extrax, y + extray + fl_y, -5 - extraz - zoom + fl_z, fl_rx, math.deg(rot) + fl_ry, fl_rz)
             else
                 Render.useTexture(modCoverNESNoref, icon)
-                Render.drawModel(modCoverNESNoref, x + extrax, y + extray, -5 - extraz - zoom, 0, math.deg(rot), 0)
+                Render.drawModel(modCoverNESNoref, x + extrax, y + extray + fl_y, -5 - extraz - zoom + fl_z, fl_rx, math.deg(rot) + fl_ry, fl_rz)
             end
         elseif apptype==11 then
             if setReflections == 1 then
                 Render.useTexture(modCoverGB, icon)
-                Render.drawModel(modCoverGB, x + extrax, y + extray, -5 - extraz - zoom, 0, math.deg(rot), 0)
+                Render.drawModel(modCoverGB, x + extrax, y + extray + fl_y, -5 - extraz - zoom + fl_z, fl_rx, math.deg(rot) + fl_ry, fl_rz)
             else
                 Render.useTexture(modCoverGBNoref, icon)
-                Render.drawModel(modCoverGBNoref, x + extrax, y + extray, -5 - extraz - zoom, 0, math.deg(rot), 0)
+                Render.drawModel(modCoverGBNoref, x + extrax, y + extray + fl_y, -5 - extraz - zoom + fl_z, fl_rx, math.deg(rot) + fl_ry, fl_rz)
             end
         elseif apptype==13 or apptype==14 or apptype==15 or apptype==16 then
             if setReflections == 1 then
                 Render.useTexture(modCoverMD, icon)
-                Render.drawModel(modCoverMD, x + extrax, y + extray, -5 - extraz - zoom, 0, math.deg(rot), 0)
+                Render.drawModel(modCoverMD, x + extrax, y + extray + fl_y, -5 - extraz - zoom + fl_z, fl_rx, math.deg(rot) + fl_ry, fl_rz)
             else
                 Render.useTexture(modCoverMDNoref, icon)
-                Render.drawModel(modCoverMDNoref, x + extrax, y + extray, -5 - extraz - zoom, 0, math.deg(rot), 0)
+                Render.drawModel(modCoverMDNoref, x + extrax, y + extray + fl_y, -5 - extraz - zoom + fl_z, fl_rx, math.deg(rot) + fl_ry, fl_rz)
             end
         elseif apptype==22 or apptype==25 or apptype==26 or apptype==27 then
             if showCat >= 1 and showCat <= 41 then
                 if setReflections == 1 then
                     Render.useTexture(modCoverMD, icon)
-                    Render.drawModel(modCoverMD, x + extrax, y + extray, -5 - extraz - zoom, 0, math.deg(rot), 0)
+                    Render.drawModel(modCoverMD, x + extrax, y + extray + fl_y, -5 - extraz - zoom + fl_z, fl_rx, math.deg(rot) + fl_ry, fl_rz)
                 else
                     Render.useTexture(modCoverMDNoref, icon)
-                    Render.drawModel(modCoverMDNoref, x + extrax, y + extray, -5 - extraz - zoom, 0, math.deg(rot), 0)
+                    Render.drawModel(modCoverMDNoref, x + extrax, y + extray + fl_y, -5 - extraz - zoom + fl_z, fl_rx, math.deg(rot) + fl_ry, fl_rz)
                 end
             else
                 if setReflections == 1 then
                     Render.useTexture(modCoverTAPE, icon)
-                    Render.drawModel(modCoverTAPE, x + extrax, y + extray, -5 - extraz - zoom, 0, math.deg(rot), 0)
+                    Render.drawModel(modCoverTAPE, x + extrax, y + extray + fl_y, -5 - extraz - zoom + fl_z, fl_rx, math.deg(rot) + fl_ry, fl_rz)
                 else
                     Render.useTexture(modCoverTAPENoref, icon)
-                    Render.drawModel(modCoverTAPENoref, x + extrax, y + extray, -5 - extraz - zoom, 0, math.deg(rot), 0)
+                    Render.drawModel(modCoverTAPENoref, x + extrax, y + extray + fl_y, -5 - extraz - zoom + fl_z, fl_rx, math.deg(rot) + fl_ry, fl_rz)
                 end
             end
         elseif apptype==28 or apptype==29 or apptype==30 or apptype==32 or apptype==33 then
             if setReflections == 1 then
                 Render.useTexture(modCoverATARI, icon)
-                Render.drawModel(modCoverATARI, x + extrax, y + extray, -5 - extraz - zoom, 0, math.deg(rot), 0)
+                Render.drawModel(modCoverATARI, x + extrax, y + extray + fl_y, -5 - extraz - zoom + fl_z, fl_rx, math.deg(rot) + fl_ry, fl_rz)
             else
                 Render.useTexture(modCoverATARINoref, icon)
-                Render.drawModel(modCoverATARINoref, x + extrax, y + extray, -5 - extraz - zoom, 0, math.deg(rot), 0)
+                Render.drawModel(modCoverATARINoref, x + extrax, y + extray + fl_y, -5 - extraz - zoom + fl_z, fl_rx, math.deg(rot) + fl_ry, fl_rz)
             end
         elseif apptype==31 or apptype==41 then
             if setReflections == 1 then
                 Render.useTexture(modCoverLYNX, icon)
-                Render.drawModel(modCoverLYNX, x + extrax, y + extray, -5 - extraz - zoom, 0, math.deg(rot), 0)
+                Render.drawModel(modCoverLYNX, x + extrax, y + extray + fl_y, -5 - extraz - zoom + fl_z, fl_rx, math.deg(rot) + fl_ry, fl_rz)
             else
                 Render.useTexture(modCoverLYNXNoref, icon)
-                Render.drawModel(modCoverLYNXNoref, x + extrax, y + extray, -5 - extraz - zoom, 0, math.deg(rot), 0)
+                Render.drawModel(modCoverLYNXNoref, x + extrax, y + extray + fl_y, -5 - extraz - zoom + fl_z, fl_rx, math.deg(rot) + fl_ry, fl_rz)
             end
         else
             -- Homebrew Icon
             if setReflections == 1 then
                 Render.useTexture(modCoverHbr, icon)
-                Render.drawModel(modCoverHbr, x + extrax, y + extray, -5 - extraz - zoom, 0, math.deg(rot), 0)
+                Render.drawModel(modCoverHbr, x + extrax, y + extray + fl_y, -5 - extraz - zoom + fl_z, fl_rx, math.deg(rot) + fl_ry, fl_rz)
             else
                 Render.useTexture(modCoverHbrNoref, icon)
-                Render.drawModel(modCoverHbrNoref, x + extrax, y + extray, -5 - extraz - zoom, 0, math.deg(rot), 0)
+                Render.drawModel(modCoverHbrNoref, x + extrax, y + extray + fl_y, -5 - extraz - zoom + fl_z, fl_rx, math.deg(rot) + fl_ry, fl_rz)
             end
         end
 
 
     else
         -- hideBoxes = hideBoxes - 0.1
+    end
+end
+
+-- FLOATING PHYSICAL MEDIA (fork): no depth test on the Vita, so the selected
+-- item is held back and drawn after its neighbours (see FLOAT.flush below).
+local function DrawCover(x, y, text, icon, sel, apptype, cur_p)
+    if setReflections == 2 and sel then
+        FLOAT.deferred = { x, y, text, icon, sel, apptype, cur_p }
+        return
+    end
+    FLOAT.draw_cover_real(x, y, text, icon, sel, apptype, cur_p)
+end
+
+function FLOAT.flush()
+    local d = FLOAT.deferred
+    if d then
+        FLOAT.deferred = nil
+        FLOAT.draw_cover_real(d[1], d[2], d[3], d[4], d[5], d[6], d[7])
     end
 end
 
@@ -15145,6 +15328,9 @@ function drawCategory (def)
     -- Draw covers in 3D obj models
     else
 
+        if setReflections == 2 then FLOAT.update() end -- FLOATING PHYSICAL MEDIA (fork)
+        FLOAT.deferred = nil
+
         for l, file in pairs((def)) do
 
             if (def)[p+7] and (def)[p+7].ricon then -- Credit BlackSheepBoy69
@@ -15204,8 +15390,10 @@ function drawCategory (def)
             end
         end
 
+        FLOAT.flush() -- FLOATING PHYSICAL MEDIA (fork): selected item drawn last
+
     end
-        
+
     -- Draw status icons for the selected game once per frame
     if #def > 0 and p > 0 and p <= #def then
         drawCategory_icons(def)
@@ -17686,6 +17874,8 @@ while true do
         Font.print(fnt22, setting_x, setting_y2, lang_lines.Reflection_Effect_colon, white) -- REFLECTION
         if setReflections == 1 then
             Font.print(fnt22, setting_x_offset, setting_y2, lang_lines.On, white)--ON
+        elseif setReflections == 2 then
+            Font.print(fnt22, setting_x_offset, setting_y2, lang_lines.Floating_Media or "Floating media", white) -- FLOATING PHYSICAL MEDIA (fork)
         else
             Font.print(fnt22, setting_x_offset, setting_y2, lang_lines.Off, white)--OFF
         end
@@ -17745,9 +17935,12 @@ while true do
                         themeColor = 0
                     end
                     SetThemeColor()
-                elseif menuY == 2 then -- #2 Reflections
+                elseif menuY == 2 then -- #2 Reflections: On -> Floating media -> Off -> On
                     if setReflections == 1 then
+                        setReflections = 2
+                    elseif setReflections == 2 then
                         setReflections = 0
+                        FLOAT.sensors_off()
                     else
                         setReflections = 1
                     end
