@@ -284,10 +284,17 @@ def vita_card():
     lw_ = max(1, int(0.012 * scale))
     for off, col in ((2, lit), (0, emb)):   # dark shadow then the lit face: moulded, glossy
         o = lambda q: (q[0] + off, q[1] + off)
-        d.text(o(pb(0, 0.66)), "PS", fill=col, font=font(int(0.17 * scale)), anchor="mm")
-        d.text(o(pb(-0.30, 0.34)), "CE", fill=col, font=font(int(0.17 * scale), weight="regular"), anchor="mm")
-        d.polygon([o(pb(0.30, 0.46)), o(pb(0.17, 0.23)), o(pb(0.43, 0.23))], outline=col, width=lw_)
-        d.line([o(pb(0.24, 0.32)), o(pb(0.29, 0.26)), o(pb(0.37, 0.40))], fill=col, width=lw_)
+        # PlayStation logo: upright P over three slanted bars of the S (pb mirrors x: +x is the viewer's left)
+        def box(a, b):
+            (x0, y0), (x1, y1) = o(pb(*a)), o(pb(*b))
+            return [min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)]
+        d.rectangle(box((0.06, 0.84), (0.02, 0.60)), fill=col)
+        d.ellipse(box((0.06, 0.84), (-0.07, 0.68)), outline=col, width=max(2, int(0.04 * scale)))
+        for (ax, ay, bx, by) in ((0.15, 0.60, 0.00, 0.645), (0.07, 0.565, -0.13, 0.61), (0.14, 0.52, -0.06, 0.565)):
+            d.polygon([o(pb(ax, ay)), o(pb(bx, by)), o(pb(bx, by - 0.03)), o(pb(ax, ay - 0.03))], fill=col)
+        d.text(o(pb(0.30, 0.34)), "CE", fill=col, font=font(int(0.17 * scale), weight="regular"), anchor="mm")
+        d.polygon([o(pb(-0.30, 0.46)), o(pb(-0.43, 0.23)), o(pb(-0.17, 0.23))], outline=col, width=lw_)
+        d.line([o(pb(-0.36, 0.32)), o(pb(-0.31, 0.26)), o(pb(-0.23, 0.40))], fill=col, width=lw_)
         d.text(o(pb(0, 0.10)), "MADE IN CHINA", fill=col, font=font(int(0.075 * scale)), anchor="mm")
     d.text(pb(0, -0.10), "VCDA A6307DF6MM2UF", fill=(72, 74, 82, 255), font=font(int(0.05 * scale), weight="regular"), anchor="mm")
     d.rounded_rectangle([pb(0.55, -0.42), pb(-0.55, -0.88)], radius=6, fill=(22, 23, 26, 255))
@@ -297,8 +304,8 @@ def vita_card():
         d.rectangle([min(a[0], b[0]), a[1], max(a[0], b[0]), b[1]], fill=(201, 164, 82, 255))
         d.line([(min(a[0], b[0]), a[1]), (max(a[0], b[0]), a[1])], fill=(245, 214, 140, 255), width=2)
     d.line([pb(*p) for p in outline] + [pb(*outline[0])], fill=(95, 98, 106, 255), width=3)
-    noise = Image.effect_noise((TEX // 2, TEX // 2), 10).convert("L")
-    grain = Image.merge("RGBA", (noise, noise, noise, Image.new("L", noise.size, 30)))
+    noise = Image.effect_noise((TEX // 2, TEX // 2), 22).convert("L")   # fine speckle of the moulded back
+    grain = Image.merge("RGBA", (noise, noise, noise, Image.new("L", noise.size, 48)))
     region = img.crop((TEX // 2, 0, TEX, TEX // 2)); region.alpha_composite(grain); img.paste(region, (TEX // 2, 0))
     # bands: blue PS VITA strip (rows 0.56..0.67) and the white ID strip (rows 0.70..0.745)
     bx0, by0, bx1, by1 = 0, int(0.56 * TEX), TEX // 2, int(0.67 * TEX)
