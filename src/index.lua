@@ -13894,6 +13894,16 @@ FLOAT = {
 
 function FLOAT.load()
     if FLOAT.loaded then return end
+    -- Any missing/bad model file drops back to normal reflections instead of crashing
+    local ok, err = pcall(FLOAT.load_assets)
+    if not ok then
+        FLOAT.loaded = true
+        FLOAT.broken = tostring(err)
+        setReflections = 1
+    end
+end
+
+function FLOAT.load_assets()
     FLOAT.shadow_img = Graphics.loadImage("app0:/DATA/float_shadow.png")
     FLOAT.shadow = Render.loadObject("app0:/DATA/float_shadow.obj", FLOAT.shadow_img)
     FLOAT.gloss_img = Graphics.loadImage("app0:/DATA/float_gloss.png")
@@ -13910,6 +13920,18 @@ function FLOAT.load()
         FLOAT.media[kind] = m
     end
     FLOAT.loaded = true
+end
+
+-- Game info screen: draw the selected game's physical media instead of its box
+function FLOAT.draw_preview(kind, px, py, pz, ry)
+    FLOAT.update()
+    local m = FLOAT.media[kind]
+    if not m or not FLOAT.sel_icon then return false end
+    local _, _, rx, fry, rz = FLOAT.offsets(0, 0)
+    Render.drawModel(m.body, px, py + FLOAT.HALF[kind] + 0.1, pz, rx, ry + fry, rz)
+    Render.useTexture(m.label, FLOAT.sel_icon)
+    Render.drawModel(m.label, px, py + FLOAT.HALF[kind] + 0.1, pz, rx, ry + fry, rz)
+    return true
 end
 
 function FLOAT.sensors_on()
@@ -14002,6 +14024,7 @@ end
 
 function FLOAT.draw_media(kind, icon, px, py, pz, fy, rx, ry, rz, side)
     local m = FLOAT.media[kind]
+    if side < 0.5 then FLOAT.sel_icon = icon end
     FLOAT.draw_shadow(px, py, pz, ry)
     local cy = py + FLOAT.HALF[kind] + fy
     Render.drawModel(m.body, px, cy, pz, rx, ry, rz)
@@ -17013,16 +17036,22 @@ while true do
         local tmpimageText=""
         -- Draw box
         if apptype==1 then
-            Render.drawModel(modCoverNoref, prevX, -1.0, -5 + prevZ, 0, math.deg(prevRot+prvRotY), 0)
-            Render.drawModel(modBoxNoref, prevX, -1.0, -5 + prevZ, 0, math.deg(prevRot+prvRotY), 0)
+            if not (setReflections == 2 and FLOAT.draw_preview("vita", prevX, -1.0, -5 + prevZ, math.deg(prevRot+prvRotY))) then -- FLOATING PHYSICAL MEDIA (fork)
+                Render.drawModel(modCoverNoref, prevX, -1.0, -5 + prevZ, 0, math.deg(prevRot+prvRotY), 0)
+                Render.drawModel(modBoxNoref, prevX, -1.0, -5 + prevZ, 0, math.deg(prevRot+prvRotY), 0)
+            end
             tmpapptype = lang_lines.PS_Vita_Game 
         elseif apptype==2 then
-            Render.drawModel(modCoverPSPNoref, prevX, -1.0, -5 + prevZ, 0, math.deg(prevRot+prvRotY), 0)
-            Render.drawModel(modBoxPSPNoref, prevX, -1.0, -5 + prevZ, 0, math.deg(prevRot+prvRotY), 0)
+            if not (setReflections == 2 and FLOAT.draw_preview("psp", prevX, -1.0, -5 + prevZ, math.deg(prevRot+prvRotY))) then -- FLOATING PHYSICAL MEDIA (fork)
+                Render.drawModel(modCoverPSPNoref, prevX, -1.0, -5 + prevZ, 0, math.deg(prevRot+prvRotY), 0)
+                Render.drawModel(modBoxPSPNoref, prevX, -1.0, -5 + prevZ, 0, math.deg(prevRot+prvRotY), 0)
+            end
             tmpapptype = lang_lines.PSP_Game 
         elseif apptype==3 then
-            Render.drawModel(modCoverPSXNoref, prevX, -1.0, -5 + prevZ, 0, math.deg(prevRot+prvRotY), 0)
-            Render.drawModel(modBoxPSXNoref, prevX, -1.0, -5 + prevZ, 0, math.deg(prevRot+prvRotY), 0)
+            if not (setReflections == 2 and FLOAT.draw_preview("psx", prevX, -1.0, -5 + prevZ, math.deg(prevRot+prvRotY))) then -- FLOATING PHYSICAL MEDIA (fork)
+                Render.drawModel(modCoverPSXNoref, prevX, -1.0, -5 + prevZ, 0, math.deg(prevRot+prvRotY), 0)
+                Render.drawModel(modBoxPSXNoref, prevX, -1.0, -5 + prevZ, 0, math.deg(prevRot+prvRotY), 0)
+            end
             tmpapptype = lang_lines.PS1_Game 
         elseif apptype==5 then
             Render.drawModel(closestBoxNoref_getinfo(), prevX, -1.0, -5 + prevZ, 0, math.deg(prevRot+prvRotY), 0)

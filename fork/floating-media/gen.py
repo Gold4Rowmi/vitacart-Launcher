@@ -25,16 +25,25 @@ GLOSS_STEPS = 9
 
 # --------------------------------------------------------------------------- OBJ
 class Mesh:
+    """Vertices are shared between faces (keyed on position + uv): the lpp-vita
+    loader resolves every face index by walking a linked list, so vertex count
+    directly sets load time."""
+
     def __init__(self):
-        self.v, self.vt, self.f = [], [], []
+        self.v, self.vt, self.f, self._idx = [], [], [], {}
 
     def tri(self, a, b, c):
         """a, b, c = ((x, y, z), (u, row)) with row measured from the image top."""
         idx = []
         for p, (u, r) in (a, b, c):
-            self.v.append(p)
-            self.vt.append((u, 1.0 - r))  # loader flips v back
-            idx.append(len(self.v))
+            key = tuple(round(k, 4) for k in (*p, u, 1.0 - r))
+            i = self._idx.get(key)
+            if i is None:
+                self.v.append(p)
+                self.vt.append((u, 1.0 - r))  # loader flips v back
+                i = len(self.v)
+                self._idx[key] = i
+            idx.append(i)
         self.f.append(idx)
 
     def quad(self, a, b, c, d):
@@ -316,7 +325,7 @@ def ps1_disc():
     R, r_hole, T = 0.925, 0.115, 0.03
     r_li, r_lo = 0.33 * R, 0.975 * R
     m = Mesh()
-    seg = 64
+    seg = 48
     bb = (-R, -R, R, R)
     ring(m, r_hole, R, -T / 2, planar(bb, 0.5, 0.5, 0, 0.5, mirror=True), seg)
     circ = [(R * math.cos(2 * math.pi * i / seg), R * math.sin(2 * math.pi * i / seg)) for i in range(seg)]
@@ -325,7 +334,7 @@ def ps1_disc():
     band(m, hole, -T / 2, T / 2)
     ring(m, r_hole, R, T / 2, planar(bb, 0, 0.5, 0, 0.5), seg)
     m.write(f"{OUT}/float_psx_body.obj")
-    ring_label_and_gloss(r_li, r_lo, T / 2 + 0.003, "float_psx")
+    ring_label_and_gloss(r_li, r_lo, T / 2 + 0.003, "float_psx", seg)
     tex_disc_ps1(R, r_hole, r_li, r_lo).save(f"{OUT}/float_psx_body.png")
 
 
