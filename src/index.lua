@@ -13898,8 +13898,10 @@ FLOAT = {
     LAYERS = {
         vita = { "back", "band", "front", "label", "gloss" },
         psx = { "sheen", "back", "band", "front", "label", "gloss" },
-        psp = { "shellback", "shellbackbevel", "shutter", "sheen", "discback", "lipback", "band", "lip",
-                "label", "hubbevel", "hub", "shellfront", "shellfrontbevel", "shade", "refl", "gloss" },
+        psp = { "shellback", "shellbackbevel", "shutter", "sheen", "discback",
+                "wallbackR", "wallbackT", "wallbackL", "wallbackB", "band",
+                "label", "hubbevel", "hub", "glass", "wallR", "wallT", "wallL", "wallB",
+                "shellfront", "shellfrontbevel", "shade", "refl", "gloss" },
     },
 
     -- State
@@ -13938,6 +13940,8 @@ function FLOAT.load_assets()
     FLOAT.shade_img = Graphics.loadImage("app0:/DATA/float_shade.png")
     Graphics.setImageFilters(FLOAT.shade_img, FILTER_LINEAR, FILTER_LINEAR)
     FLOAT.VARIANT_TEX = { gloss = FLOAT.gloss_img, refl = FLOAT.env_img, shade = FLOAT.shade_img }
+    FLOAT.glass_img = Graphics.loadImage("app0:/DATA/float_glass.png")
+    Graphics.setImageFilters(FLOAT.glass_img, FILTER_LINEAR, FILTER_LINEAR)
     for kind, names in pairs(FLOAT.LAYERS) do
         local m = { layers = {}, gloss = {} }
         m.body_img = Graphics.loadImage("app0:/DATA/float_" .. kind .. "_body.png")
@@ -13950,6 +13954,12 @@ function FLOAT.load_assets()
                 end
                 if name == "gloss" then m.gloss = set end
                 table.insert(m.layers, { name = name, set = set })
+            elseif name == "glass" then
+                table.insert(m.layers, { name = "glass", obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_glass.obj", FLOAT.glass_img) })
+            elseif name:match("^wall") then
+                -- inner wall of the window, one arc per side; only the far side is ever drawn
+                table.insert(m.layers, { name = name, side = name:sub(-1), back = name:find("back") ~= nil,
+                    obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_" .. name .. ".obj", m.body_img) })
             elseif name == "sheen" then
                 table.insert(m.layers, { name = "sheen", obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_sheen.obj", FLOAT.sheen_img) })
             elseif name == "label" then
@@ -14134,6 +14144,16 @@ function FLOAT.draw_layers(kind, icon, disc_label, px, cy, pz, rx, ry, rz, with_
                 local span = (L.name == "gloss") and 26 or 55
                 local g = math.floor(FLOAT.clamp((ry / span + 1) / 2, 0, 1) * (FLOAT.GLOSS_STEPS - 1) + 0.5)
                 Render.drawModel(L.set[g], px, cy, pz, rx, ry, rz)
+            end
+        elseif L.side then
+            -- +yaw moves the right side away from the viewer, +pitch moves the top nearer;
+            -- a wall arc is visible only on the far side, and only from the face it belongs to
+            local sy, sx = math.sin(math.rad(ry)), math.sin(math.rad(rx))
+            if L.back then sy, sx = -sy, -sx end
+            local far = (L.side == "R" and sy > 0.03) or (L.side == "L" and sy < -0.03)
+                     or (L.side == "B" and sx > 0.03) or (L.side == "T" and sx < -0.03)
+            if far and ((facing >= 0) ~= L.back) then
+                Render.drawModel(L.obj, px, cy, pz, rx, ry, rz)
             end
         elseif L.name == "sheen" then
             -- data-side diffraction: spin the colour lobes about the disc axis with the view angle

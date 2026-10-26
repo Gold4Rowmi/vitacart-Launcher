@@ -345,7 +345,7 @@ def psp_umd():
     R_d = 0.86
     R_s = R_d + 0.07
     base_y = -(R_d + 0.16)
-    T, bev, rc = 0.12, 0.022, 0.10
+    T, bev, rc = 0.13, 0.022, 0.10
     r_hub, r_hole = 0.30, 0.05
     R_open = R_d + 0.012          # window opening
     seg = 72
@@ -357,7 +357,7 @@ def psp_umd():
     bb = bbox(outline)
     dbb = (-R_d, -R_d, R_d, R_d)
     zf, zb = T / 2, -T / 2
-    disc_zf, disc_zb = zf - 0.045, zb + 0.045
+    disc_zf, disc_zb = 0.004, -0.004   # the disc sits in the middle of the shell
     hub_z = disc_zf - 0.012
 
     # atlas regions (1024): shell front face 0..0.5 x 0..0.5, shell back 0.5..1 x 0..0.5
@@ -368,7 +368,7 @@ def psp_umd():
 
     # --- back
     m = Mesh(); ring_to_outline(m, R_open, inner, zb, Ab, seg * 2); m.write("float_psp_shellback")
-    m = Mesh(); strip(m, inner, zb, outline, zb + bev, 0.5, 0.5, 0.52, 0.56); m.write("float_psp_shellbackbevel")
+    m = Mesh(); strip(m, inner, zb, outline, zb + bev, 0.5, 0.5, 0.78, 0.82); m.write("float_psp_shellbackbevel")
     sx0, sx1, sy0, sy1 = -0.12, R_s - 0.02, -0.24, 0.08
     zs = zb + 0.006
     m = Mesh()
@@ -378,21 +378,37 @@ def psp_umd():
     m.write("float_psp_shutter")
     m = Mesh(); ring(m, 0.30, R_d, disc_zb - 0.004, planar(dbb), seg); m.write("float_psp_sheen")
     m = Mesh(); ring(m, r_hole, R_d, disc_zb, planar(dbb, 0, 0.5, 0.5, 0.5, mirror=True), seg); m.write("float_psp_discback")
-    m = Mesh(); cone_ring(m, R_open, zb, R_open - 0.015, zb + 0.035, lambda x, y: (0.2, 0.715), seg); m.write("float_psp_lipback")
+    def wall_arcs(name, z_outer, z_inner):
+        """Inner wall of the window split into R/T/L/B arcs (from the front)."""
+        for tag, a0 in (("R", -45), ("T", 45), ("L", 135), ("B", 225)):
+            m = Mesh()
+            n = seg // 4
+            for i in range(n):
+                t0 = math.radians(a0 + 90 * i / n)
+                t1 = math.radians(a0 + 90 * (i + 1) / n)
+                p = [(R_open * math.cos(t0), R_open * math.sin(t0), z_outer), (R_open * math.cos(t1), R_open * math.sin(t1), z_outer),
+                     ((R_open - 0.004) * math.cos(t1), (R_open - 0.004) * math.sin(t1), z_inner),
+                     ((R_open - 0.004) * math.cos(t0), (R_open - 0.004) * math.sin(t0), z_inner)]
+                m.quad(((p[0][0], p[0][1], p[0][2]), (0.55, 0.952)), ((p[1][0], p[1][1], p[1][2]), (0.65, 0.952)),
+                       ((p[2][0], p[2][1], p[2][2]), (0.65, 0.978)), ((p[3][0], p[3][1], p[3][2]), (0.55, 0.978)))
+            m.write(f"{name}{tag}")
+    wall_arcs("float_psp_wallback", zb, disc_zb - 0.006)
     # --- side
-    m = Mesh(); band(m, outline, zb + bev, zf - bev, 0.0, 1.0, 0.58, 0.68); m.write("float_psp_band")
+    m = Mesh(); band(m, outline, zb + bev, zf - bev, 0.5, 0.5, 0.84, 0.94); m.write("float_psp_band")
     # --- front
-    m = Mesh(); cone_ring(m, R_open - 0.015, zf - 0.035, R_open, zf, lambda x, y: (0.2, 0.715), seg); m.write("float_psp_lip")
+    wall_arcs("float_psp_wall", zf, disc_zf + 0.006)
+    # glass: plastic tint over the window + contact shadow where the lip overhangs the disc
+    m = Mesh(); ring(m, r_hub - 0.03, R_open, disc_zf + 0.009, planar((-R_open, -R_open, R_open, R_open)), seg); m.write("float_psp_glass")
     m = Mesh(); ring(m, r_hub, R_d, disc_zf, planar(dbb, 0, 1, 0.02, 1), seg); m.write("float_psp_label")
     m = Mesh(); ring(m, r_hub, R_d, disc_zf, planar(dbb), seg); m.write("float_psp_labeldisc")
     m = Mesh(); cone_ring(m, r_hub - 0.03, hub_z, r_hub, disc_zf, lambda x, y: (0.63 + x * 0.35, 0.63 - y * 0.35), 36); m.write("float_psp_hubbevel")
     m = Mesh(); fan(m, circle(r_hub - 0.03, 36), hub_z, planar((-r_hub, -r_hub, r_hub, r_hub), 0.52, 0.22, 0.52, 0.22)); m.write("float_psp_hub")
     m = Mesh(); ring_to_outline(m, R_open, inner, zf, A, seg * 2); m.write("float_psp_shellfront")
-    m = Mesh(); strip(m, inner, zf, outline, zf - bev, 0.0, 0.5, 0.52, 0.56); m.write("float_psp_shellfrontbevel")
+    m = Mesh(); strip(m, inner, zf, outline, zf - bev, 0.5, 0.5, 0.78, 0.82); m.write("float_psp_shellfrontbevel")
     # overlays: clear window over the disc + the whole shell front, planar UV window (yaw-shifted)
     def overlay(g, s, z_add, scale_v=1.0):
         uv = planar(bb, s, 0.5, 0, scale_v)
-        ring(g, r_hub, R_open - 0.015, disc_zf + 0.006 + z_add, uv, seg)
+        ring(g, r_hub, R_open - 0.004, zf - 0.002 + z_add, uv, seg)  # the window surface, flush with the shell
         ring_to_outline(g, R_open, inner, zf + 0.003 + z_add, uv, seg * 2)
         strip_uv = lambda pts, z: None
         # bevel as a cone-like strip with planar uv
@@ -434,14 +450,17 @@ def psp_umd():
     d.ellipse([c[0] - s_, c[1] - s_, c[0] + s_, c[1] + s_], outline=(132, 134, 140, 255), width=3)
     d.line([pb(*p) for p in inner] + [pb(*inner[0])], fill=(188, 190, 196, 255), width=2)
     # bevel strips (front 0..0.5, back 0.5..1): bright top edge rolling to the side tone
-    for r in range(int(0.52 * TEX), int(0.56 * TEX) + 1):
-        t = (r - 0.52 * TEX) / (0.04 * TEX)
+    for r in range(int(0.78 * TEX) - 2, int(0.82 * TEX) + 3):
+        t = min(1.0, max(0.0, (r - 0.78 * TEX) / (0.04 * TEX)))
         v = int(250 - 40 * t)
-        d.line([(0, r), (TEX, r)], fill=(v, v, v + 3, 255))
+        d.line([(TEX // 2, r), (TEX, r)], fill=(v, v, v + 3, 255))
     # band
-    side_strip(d, (214, 215, 219), 0.0, 1.0, 0.58, 0.68)
-    # lip (dark chamfer)
-    d.rectangle([0, int(0.70 * TEX), TEX, int(0.73 * TEX)], fill=(150, 152, 158, 255))
+    side_strip(d, (214, 215, 219), 0.5, 0.5, 0.84, 0.94)
+    # inner wall of the window: dark under the lip, lighter towards the disc
+    for r in range(int(0.95 * TEX) - 2, int(0.98 * TEX) + 3):
+        t = min(1.0, max(0.0, (r - 0.95 * TEX) / (0.03 * TEX)))
+        v = int(96 + 70 * t)
+        d.line([(TEX // 2, r), (TEX, r)], fill=(v, v, v + 4, 255))
     # disc back (0..0.5 x 0.5..1, mirrored)
     pd = px_of(dbb, 0, 0.5, 0.5, 0.5, mirror=True)
     radial(d, pd, 0, 0, R_d, (TEX * 0.5) / (2 * R_d), lambda rr: data_side(rr, R_d, 0.34))
@@ -471,6 +490,25 @@ def psp_umd():
     img.save(f"{OUT}/float_psp_body.png")
     TEX = 512
     return (bb[3] - bb[1]) / 2, -(bb[1] + bb[3]) / 2
+
+
+def glass_texture():
+    n = 512
+    img = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+    px = img.load()
+    c = (n - 1) / 2
+    for y in range(n):
+        for x in range(n):
+            r = math.hypot((x - c) / c, (y - c) / c)
+            if r > 1.0:
+                continue
+            ao = max(0.0, (r - 0.80) / 0.20) ** 1.6          # lip shadow near the window edge
+            tint = 0.07 * (1 - 0.5 * r)                        # faint plastic haze, lighter at the centre
+            a = min(1.0, 0.55 * ao + tint)
+            k = tint / a if a > 0 else 0
+            v = int(255 * k)
+            px[x, y] = (v, v, int(min(255, v * 1.05)), int(255 * a))
+    img.filter(ImageFilter.GaussianBlur(1.5)).save(f"{OUT}/float_glass.png")
 
 
 def env_texture():
@@ -568,5 +606,6 @@ if __name__ == "__main__":
     sheen_texture()
     env_texture()
     shade_texture()
+    glass_texture()
     print(f"half heights: vita={hv:.3f} psx={hp:.3f} psp={hu:.3f} (psp centre offset {off:+.3f})")
     print(len(os.listdir(OUT)), "files")
