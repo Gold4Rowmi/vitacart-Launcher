@@ -13897,8 +13897,8 @@ FLOAT = {
     YOFF = { vita = 0, psp = 0.045, psx = 0 },
     LAYERS = {
         vita = { "back", "band", "front", "label", "gloss" },
-        psx = { "back", "band", "front", "label", "gloss" },
-        psp = { "shellback", "shutter", "discback", "band", "label", "hub", "shellfront", "gloss" },
+        psx = { "sheen", "back", "band", "front", "label", "gloss" },
+        psp = { "shellback", "shutter", "sheen", "discback", "band", "label", "hub", "shellfront", "gloss" },
     },
 
     -- State
@@ -13930,6 +13930,8 @@ function FLOAT.load_assets()
     FLOAT.shadow = Render.loadObject("app0:/DATA/float_shadow.obj", FLOAT.shadow_img)
     FLOAT.gloss_img = Graphics.loadImage("app0:/DATA/float_gloss.png")
     Graphics.setImageFilters(FLOAT.gloss_img, FILTER_LINEAR, FILTER_LINEAR)
+    FLOAT.sheen_img = Graphics.loadImage("app0:/DATA/float_sheen.png")
+    Graphics.setImageFilters(FLOAT.sheen_img, FILTER_LINEAR, FILTER_LINEAR)
     for kind, names in pairs(FLOAT.LAYERS) do
         local m = { layers = {}, gloss = {} }
         m.body_img = Graphics.loadImage("app0:/DATA/float_" .. kind .. "_body.png")
@@ -13940,6 +13942,8 @@ function FLOAT.load_assets()
                     m.gloss[i] = Render.loadObject("app0:/DATA/float_" .. kind .. "_gloss" .. i .. ".obj", FLOAT.gloss_img)
                 end
                 table.insert(m.layers, { name = "gloss" })
+            elseif name == "sheen" then
+                table.insert(m.layers, { name = "sheen", obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_sheen.obj", FLOAT.sheen_img) })
             elseif name == "label" then
                 m.label = Render.loadObject("app0:/DATA/float_" .. kind .. "_label.obj", imgCoverTmp)
                 table.insert(m.layers, { name = "label", obj = m.label })
@@ -14098,6 +14102,12 @@ function FLOAT.media_kind(apptype)
     return nil
 end
 
+-- Angle of the diffraction lobes for a viewing pose (degrees about the disc axis)
+function FLOAT.sheen_angle(rx, ry)
+    -- the lobes line up with the direction the disc is tilted towards the light
+    return math.deg(math.atan2(math.sin(math.rad(rx)), math.sin(math.rad(ry)) + 1e-6)) + ry * 0.6
+end
+
 function FLOAT.draw_shadow(px, py, pz, ry)
     Render.drawModel(FLOAT.shadow, px, py + 0.003, pz, 0, ry, 0)
 end
@@ -14114,6 +14124,11 @@ function FLOAT.draw_layers(kind, icon, disc_label, px, cy, pz, rx, ry, rz, with_
             if with_gloss and facing > 0.15 then
                 local g = math.floor(FLOAT.clamp((ry / 26 + 1) / 2, 0, 1) * (FLOAT.GLOSS_STEPS - 1) + 0.5)
                 Render.drawModel(m.gloss[g], px, cy, pz, rx, ry, rz)
+            end
+        elseif L.name == "sheen" then
+            -- data-side diffraction: spin the colour lobes about the disc axis with the view angle
+            if facing < 0.35 then
+                Render.drawModel(L.obj, px, cy, pz, rx, ry, rz + FLOAT.sheen_angle(rx, ry))
             end
         elseif L.name == "label" then
             Render.useTexture(label, icon)

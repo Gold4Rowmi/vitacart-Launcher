@@ -13,6 +13,12 @@ Run this on a PC with the Vita's memory card mounted (or a copy of the folder):
     python3 umd_labels.py "/path/to/ux0/data/RetroFlow"
 
 Options:
+    --from-folder DIR                 import existing disc images instead of
+                                      downloading: e.g. the "physical media" /
+                                      "support" PNGs a scraper such as Skraper or
+                                      ES-DE fetched from ScreenScraper.fr. Files
+                                      are matched by disc ID in the name, or by
+                                      the game title used for the RetroFlow cover.
     --ids UCJS-10045 ULUS-10041 ...   only these disc IDs
     --force                           rebuild labels that already exist
     --keep                            keep the raw downloaded scans in .umd_cache/
@@ -178,10 +184,50 @@ def disc_label(img, circle, size=OUT_SIZE):
     return out
 
 
+# ----------------------------------------------------------------------------- import
+def import_folder(folder, covers, ids, force):
+    """Use disc images already on disk (ScreenScraper 'physical media' etc.)."""
+    files = [f for f in os.listdir(folder) if f.lower().endswith((".png", ".jpg", ".jpeg"))]
+    cover_names = {os.path.splitext(f)[0].lower(): os.path.splitext(f)[0]
+                   for f in os.listdir(covers) if f.lower().endswith(".png") and not f.lower().endswith("_umd.png")}
+    done = 0
+    for f in files:
+        stem = os.path.splitext(f)[0]
+        m = re.search(r"([A-Z]{4})[-_ ]?(\d{5})", stem.upper())
+        if m:
+            target = m.group(1) + m.group(2)
+        else:
+            # match the cover's own name (RetroFlow names PSP covers by game id or title)
+            key = re.sub(r"-(physicalmedia|support|disc|cart)$", "", stem.lower())
+            target = cover_names.get(key)
+        if not target or (ids and target not in ids):
+            continue
+        out = os.path.join(covers, f"{target}_umd.png")
+        if os.path.exists(out) and not force:
+            continue
+        img = Image.open(os.path.join(folder, f)).convert("RGBA")
+        # already a clean disc on transparency? use its alpha bounds; else find the disc
+        alpha = np.asarray(img)[..., 3]
+        ys, xs = np.nonzero(alpha > 32)
+        if len(xs) and (alpha == 0).mean() > 0.1:
+            r = max(xs.max() - xs.min(), ys.max() - ys.min()) / 2
+            circle = ((xs.min() + xs.max()) / 2, (ys.min() + ys.max()) / 2, r)
+        else:
+            circle = find_disc(img.convert("RGB"))
+        if not circle:
+            print(f"  {f}: no disc found")
+            continue
+        disc_label(img.convert("RGB"), circle).save(out, optimize=True)
+        print(f"  {f} -> {os.path.basename(out)}")
+        done += 1
+    print(f"done: {done} labels written")
+
+
 # ----------------------------------------------------------------------------- main
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("retroflow_dir", help="ux0:/data/RetroFlow folder (mounted or copied)")
+    ap.add_argument("--from-folder", help="import disc PNG/JPGs from this folder instead of downloading")
     ap.add_argument("--ids", nargs="*", help="only these disc IDs (UCJS-10045 ...)")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--keep", action="store_true")
@@ -191,6 +237,9 @@ def main():
     covers = os.path.join(root, "COVERS", "Sony - PlayStation Portable")
     os.makedirs(covers, exist_ok=True)
     ids = [i.replace("-", "").upper() for i in args.ids] if args.ids else library_disc_ids(root)
+    if args.from_folder:
+        import_folder(args.from_folder, covers, ids if args.ids else None, args.force)
+        return
     if not ids:
         sys.exit("No PSP disc IDs found. Open RetroFlow once so its CACHE exists, or pass --ids.")
     print(f"{len(ids)} PSP games")

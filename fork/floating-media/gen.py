@@ -267,6 +267,7 @@ def ps1_disc():
     r_li, r_lo = 0.33 * R, 0.975 * R
     bb = (-R, -R, R, R)
     m = Mesh(); ring(m, r_hole, R, -T / 2, planar(bb, 0.5, 0.5, 0, 0.5, mirror=True), seg); m.write("float_psx_back")
+    m = Mesh(); ring(m, 0.3 * R, R, -T / 2 - 0.004, planar(bb), seg); m.write("float_psx_sheen")
     m = Mesh(); band(m, circle(R, seg), -T / 2, T / 2, 0, 1); band(m, circle(r_hole, seg), -T / 2, T / 2, 0, 1)
     m.write("float_psx_band")
     m = Mesh(); ring(m, r_hole, R, T / 2, planar(bb, 0, 0.5, 0, 0.5), seg); m.write("float_psx_front")
@@ -288,7 +289,6 @@ def ps1_disc():
     # back: PlayStation-style black data side with a sheen
     pb = px_of(bb, 0.5, 0, 0.5, 0.5, mirror=True)
     radial(d, pb, 0, 0, R, scale, lambda rr: (18 + int(22 * math.sin(rr / R * math.pi) ** 2),) * 2 + (24 + int(22 * math.sin(rr / R * math.pi) ** 2),) if rr > 0.3 * R else (200, 205, 212))
-    rainbow_sweep(img, (TEX // 2, 0, TEX, TEX // 2), 25)
     side_strip(d, (190, 196, 205))
     img.save(f"{OUT}/float_psx_body.png")
     return R
@@ -318,6 +318,7 @@ def psp_umd():
     # --- layers (back to front)
     m = Mesh(); ring_to_outline(m, R_d - 0.02, outline, -T / 2, planar(bb, 0.5, 0.5, 0, 0.5, mirror=True)); m.write("float_psp_shellback")
     m = Mesh(); ring(m, r_hole, R_d, disc_z_b, planar(dbb, 0, 0.5, 0.5, 0.5, mirror=True), seg); m.write("float_psp_discback")
+    m = Mesh(); ring(m, 0.30, R_d, disc_z_b - 0.004, planar(dbb), seg); m.write("float_psp_sheen")
     # shutter: a tab from the left edge to just past the hub, a little below centre
     sx0, sx1, sy0, sy1 = -0.12, R_s - 0.02, -0.24, 0.08  # appears on the LEFT when viewed from behind
     zs = -T / 2 + 0.005
@@ -357,8 +358,6 @@ def psp_umd():
     # disc back (bottom-left): silver data side with a rainbow sweep
     pd = px_of(dbb, 0, 0.5, 0.5, 0.5, mirror=True)
     radial(d, pd, 0, 0, R_d, (TEX * 0.5) / (2 * R_d), lambda rr: data_side(rr, R_d, 0.34))
-    rainbow_sweep(img, (0, TEX // 2, TEX // 2, TEX), -35)
-    rainbow_sweep(img, (0, TEX // 2, TEX // 2, TEX), 145)
     d = ImageDraw.Draw(img)
     c = pd(0, 0)
     for rr, col in [(0.34, (90, 92, 98)), (0.28, (160, 164, 170)), (0.12, (60, 60, 64))]:
@@ -392,6 +391,35 @@ def shadow():
     img.filter(ImageFilter.GaussianBlur(12)).save(f"{OUT}/float_shadow.png")
 
 
+def sheen_texture():
+    """Diffraction colours of a disc's data side: hue runs along the radius,
+    strongest in two opposite lobes. index.lua spins this layer about the disc
+    axis as the viewing angle changes, so the colours sweep round like a real CD."""
+    n = 256
+    img = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+    px = img.load()
+    c = (n - 1) / 2
+    for y in range(n):
+        for x in range(n):
+            dx, dy = (x - c) / c, (y - c) / c
+            r = math.hypot(dx, dy)
+            if r > 1.0 or r < 0.3:
+                continue
+            a = math.atan2(dy, dx)
+            def spoke(centre, width):  # angular gaussian, mirrored across the disc
+                d = (a - centre + math.pi) % math.pi - math.pi / 2
+                return math.exp(-(d / width) ** 2)
+            lobe = spoke(0.0, 0.42) + 0.5 * spoke(1.25, 0.22)
+            fade = math.sin((r - 0.3) / 0.7 * math.pi) ** 0.5
+            h = ((r - 0.3) / 0.7 * 1.6 + 0.65) % 1.0
+            i = int(h * 6); f = h * 6 - i
+            q, t = 1 - f, f
+            rgb = [(1, t, 0), (q, 1, 0), (0, 1, t), (0, q, 1), (t, 0, 1), (1, 0, q)][i % 6]
+            alpha = int(255 * min(1.0, 0.8 * lobe) * fade)
+            px[x, y] = (int(90 + 165 * rgb[0]), int(90 + 165 * rgb[1]), int(90 + 165 * rgb[2]), alpha)
+    img.filter(ImageFilter.GaussianBlur(1.2)).save(f"{OUT}/float_sheen.png")
+
+
 def gloss_texture():
     w, h = 512, 256
     img = Image.new("RGBA", (w, h), (255, 255, 255, 0))
@@ -407,5 +435,6 @@ if __name__ == "__main__":
     hu, off = psp_umd()
     shadow()
     gloss_texture()
+    sheen_texture()
     print(f"half heights: vita={hv:.3f} psx={hp:.3f} psp={hu:.3f} (psp centre offset {off:+.3f})")
     print(len(os.listdir(OUT)), "files")

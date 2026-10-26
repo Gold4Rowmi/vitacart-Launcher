@@ -11,9 +11,16 @@ Touch the selected item and drag to spin it, right round to the back; let go
 and it springs back (a quick flick carries on spinning first). Swiping anywhere
 else still scrolls the library as normal.
 
+## Data-side diffraction
+The back of the UMD and the PS1 disc carry a translucent rainbow layer that is
+spun about the disc axis by the viewing angle (`FLOAT.sheen_angle`), so the
+spectral lobes sweep round as you tilt or spin the disc, like a real CD.
+
 ## Real UMD labels
 `umd_labels.py` builds `<GAME ID>_umd.png` disc labels from umdatabase.net
-scans for every PSP game in your library (run it on a PC, see its header).
+scans for every PSP game in your library (run it on a PC, see its header), or
+imports disc images you already have with `--from-folder` (e.g. ScreenScraper
+"physical media" PNGs fetched by Skraper or ES-DE).
 RetroFlow Float uses them as the round label on the UMD; without one the box
 art is used, cropped to a circle.
 
