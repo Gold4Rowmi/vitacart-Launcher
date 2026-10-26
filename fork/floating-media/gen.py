@@ -226,7 +226,7 @@ def vita_card():
     front. The label (cover art) carries the blue PS VITA band and the white
     ID band; the back is grained plastic with the moulded marks and the
     gold contacts."""
-    W, H, T = 1.36, 1.85, 0.09
+    W, H, T = 1.36, 1.85, 0.16
     hw, hh = W / 2, H / 2
     step = 0.02                            # the part above the side notches is a little narrower
     ny, nh, nd = hh - 0.46, 0.05, 0.045    # side notch: centre height, height, depth
@@ -260,26 +260,35 @@ def vita_card():
     m_ = Mesh(); fan(m_, top_band, T / 2 + 0.006, planar(tbb, 0, 0.5, 0.56, 0.11))
     bot = [(lx0, ly0), (lx1, ly0), (lx1, ly0 + 0.11), (lx0, ly0 + 0.11)]
     fan(m_, bot, T / 2 + 0.006, planar(bbox(bot), 0, 0.5, 0.70, 0.045)); m_.write("float_vita_bands")
-    gloss_set("float_vita", lambda g, s: fan(g, lab, T / 2 + 0.008, planar(lbb, s, 0.5, 0, 1)))
+    def vita_gloss(g, s):
+        fan(g, outline, T / 2 + 0.008, planar(bb, s, 0.5, 0, 1))
+        fan(g, lab, T / 2 + 0.009, planar(lbb, s, 0.5, 0, 1))
+    gloss_set("float_vita", vita_gloss)
 
     img = Image.new("RGBA", (TEX, TEX), (0, 0, 0, 255))
     d = ImageDraw.Draw(img)
     scale = (TEX * 0.5) / (bb[2] - bb[0])
     # front rim: dark plastic, arrow notch moulded at the bottom
-    vgrad(d, (0, 0, TEX // 2, TEX // 2), (58, 60, 66), (34, 35, 39))
+    vgrad(d, (0, 0, TEX // 2, TEX // 2), (74, 77, 86), (26, 27, 31))
     pf = px_of(bb, 0, 0, 0.5, 0.5)
-    d.polygon([pf(-0.13, -hh + 0.20), pf(0.13, -hh + 0.20), pf(0, -hh + 0.08)], fill=(14, 15, 18, 255), outline=(96, 98, 106, 255))
+    tri = [pf(-0.13, -hh + 0.20), pf(0.13, -hh + 0.20), pf(0, -hh + 0.08)]
+    d.polygon(tri, fill=(10, 11, 14, 255))
+    d.line([tri[0], tri[1]], fill=(190, 194, 204, 255), width=3)          # lit top edge of the recess
+    d.line([tri[1], tri[2]], fill=(70, 72, 80, 255), width=2)
+    d.polygon([pf(-0.08, -hh + 0.185), pf(0.06, -hh + 0.185), pf(0.0, -hh + 0.13)], fill=(58, 60, 70, 255))  # specular
     d.line([pf(*p) for p in outline] + [pf(*outline[0])], fill=(110, 113, 122, 255), width=3)
     # back: grained plastic, moulded marks, contacts in a recess
-    vgrad(d, (TEX // 2, 0, TEX, TEX // 2), (46, 47, 52), (28, 29, 32))
+    vgrad(d, (TEX // 2, 0, TEX, TEX // 2), (62, 64, 72), (30, 31, 35))
     pb = px_of(bb, 0.5, 0, 0.5, 0.5, mirror=True)
-    emb = (96, 98, 108, 255)
-    d.text(pb(0, 0.66), "PS", fill=emb, font=font(int(0.17 * scale)), anchor="mm")
-    d.text(pb(-0.30, 0.34), "CE", fill=emb, font=font(int(0.17 * scale), weight="regular"), anchor="mm")
-    tri = [pb(0.30, 0.46), pb(0.17, 0.23), pb(0.43, 0.23)]
-    d.polygon(tri, outline=emb, width=max(1, int(0.012 * scale)))
-    d.line([pb(0.24, 0.32), pb(0.29, 0.26), pb(0.37, 0.40)], fill=emb, width=max(1, int(0.012 * scale)))
-    d.text(pb(0, 0.10), "MADE IN CHINA", fill=emb, font=font(int(0.075 * scale)), anchor="mm")
+    emb, lit = (150, 153, 165, 255), (28, 29, 33, 255)
+    lw_ = max(1, int(0.012 * scale))
+    for off, col in ((2, lit), (0, emb)):   # dark shadow then the lit face: moulded, glossy
+        o = lambda q: (q[0] + off, q[1] + off)
+        d.text(o(pb(0, 0.66)), "PS", fill=col, font=font(int(0.17 * scale)), anchor="mm")
+        d.text(o(pb(-0.30, 0.34)), "CE", fill=col, font=font(int(0.17 * scale), weight="regular"), anchor="mm")
+        d.polygon([o(pb(0.30, 0.46)), o(pb(0.17, 0.23)), o(pb(0.43, 0.23))], outline=col, width=lw_)
+        d.line([o(pb(0.24, 0.32)), o(pb(0.29, 0.26)), o(pb(0.37, 0.40))], fill=col, width=lw_)
+        d.text(o(pb(0, 0.10)), "MADE IN CHINA", fill=col, font=font(int(0.075 * scale)), anchor="mm")
     d.text(pb(0, -0.10), "VCDA A6307DF6MM2UF", fill=(72, 74, 82, 255), font=font(int(0.05 * scale), weight="regular"), anchor="mm")
     d.rounded_rectangle([pb(0.55, -0.42), pb(-0.55, -0.88)], radius=6, fill=(22, 23, 26, 255))
     for k in range(10):
