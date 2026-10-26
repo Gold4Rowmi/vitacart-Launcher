@@ -9,7 +9,7 @@ The Vita has no depth test, so every piece of media is split into LAYERS,
 written as separate OBJs, that index.lua draws back-to-front, or front-to-back
 when the item has been spun round to show its back:
 
-    vita : back, band, front, label*, gloss*
+    vita : back, band, front, label*, bands, gloss*
     psx  : back, band, front, label*, gloss*
     psp  : backrefl*, slotrim, backglass, shellback, discback, band, label*, hub, shellfront, refl*, gloss*
     (* label is textured with the cover art, gloss only on the selected item)
@@ -221,42 +221,84 @@ def rainbow_sweep(img, box, ang_deg):
 
 # ================================================================== PS VITA CARD
 def vita_card():
+    """PS Vita game card: domed top with a small step notch on each side, a
+    chamfered bottom-left corner, a moulded arrow notch at the bottom of the
+    front. The label (cover art) carries the blue PS VITA band and the white
+    ID band; the back is grained plastic with the moulded marks and the
+    gold contacts."""
     W, H, T = 1.36, 1.85, 0.09
-    hw, hh, ch, rc = W / 2, H / 2, 0.20, 0.06
-    outline = (arc(-hw + rc, -hh + rc, rc, 180, 270) + arc(hw - rc, -hh + rc, rc, 270, 360)
-               + [(hw, hh - ch), (hw - ch, hh)] + arc(-hw + rc, hh - rc, rc, 90, 180))
+    hw, hh = W / 2, H / 2
+    step = 0.02                            # the part above the side notches is a little narrower
+    ny, nh, nd = hh - 0.46, 0.05, 0.045    # side notch: centre height, height, depth
+    chamfer, rc, sag, m = 0.14, 0.05, 0.07, 0.075
+    R_top = ((hw - step) ** 2 + sag ** 2) / (2 * sag)   # dome radius: peak at hh, sides at hh - sag
+    cy_top = hh - R_top
+
+    def dome(x0, x1, r, n=16):
+        xs_ = [x0 + (x1 - x0) * i / n for i in range(n + 1)]
+        return [(x, cy_top + math.sqrt(r * r - x * x)) for x in xs_]
+    outline = ([(-hw, -hh + chamfer), (-hw + chamfer, -hh)] + arc(hw - rc, -hh + rc, rc, 270, 360, 3)
+               + [(hw, ny - nh / 2), (hw - nd, ny - nh / 2), (hw - nd, ny + nh / 2), (hw - step, ny + nh / 2)]
+               + dome(hw - step, -(hw - step), R_top)
+               + [(-(hw - step), ny + nh / 2), (-hw + nd, ny + nh / 2), (-hw + nd, ny - nh / 2), (-hw, ny - nh / 2)])
     bb = bbox(outline)
-    Mesh().__class__  # noqa (keeps linters quiet about unused helpers)
-    m = Mesh(); fan(m, outline, -T / 2, planar(bb, 0.5, 0.5, 0, 0.5, mirror=True)); m.write("float_vita_back")
-    m = Mesh(); band(m, outline, -T / 2, T / 2); m.write("float_vita_band")
-    m = Mesh(); fan(m, outline, T / 2, planar(bb, 0, 0.5, 0, 0.5)); m.write("float_vita_front")
-    lw, lh, lb, lr = 1.20, 1.54, -0.85, 0.035
-    lx0, lx1, ly0, ly1 = -lw / 2, lw / 2, lb, lb + lh
+    m_ = Mesh(); fan(m_, outline, -T / 2, planar(bb, 0.5, 0.5, 0, 0.5, mirror=True)); m_.write("float_vita_back")
+    m_ = Mesh(); band(m_, outline, -T / 2, T / 2, 0.5, 0.5, 0.55, 0.95); m_.write("float_vita_band")
+    m_ = Mesh(); fan(m_, outline, T / 2, planar(bb, 0, 0.5, 0, 0.5)); m_.write("float_vita_front")
+    # label: sides inset m from the rim, bottom above the arrow notch, top following the dome
+    lx0, lx1, ly0, lr = -(hw - m), hw - m, -hh + 0.24, 0.03
+    R_lab = R_top - m
+    y_side = cy_top + math.sqrt(R_lab * R_lab - lx1 * lx1)
     lab = (arc(lx0 + lr, ly0 + lr, lr, 180, 270, 3) + arc(lx1 - lr, ly0 + lr, lr, 270, 360, 3)
-           + arc(lx1 - lr, ly1 - lr, lr, 0, 90, 3) + arc(lx0 + lr, ly1 - lr, lr, 90, 180, 3))
+           + dome(lx1, lx0, R_lab))
     lbb = bbox(lab)
-    m = Mesh(); fan(m, lab, T / 2 + 0.004, planar(lbb)); m.write("float_vita_label")
+    m_ = Mesh(); fan(m_, lab, T / 2 + 0.004, planar(lbb)); m_.write("float_vita_label")
+    # bands printed over the art: blue PS VITA band under the dome, white ID band at the bottom
+    yb = y_side - 0.20
+    top_band = [(lx0, yb), (lx1, yb)] + dome(lx1, lx0, R_lab)
+    tbb = bbox(top_band)
+    m_ = Mesh(); fan(m_, top_band, T / 2 + 0.006, planar(tbb, 0, 0.5, 0.56, 0.11))
+    bot = [(lx0, ly0), (lx1, ly0), (lx1, ly0 + 0.11), (lx0, ly0 + 0.11)]
+    fan(m_, bot, T / 2 + 0.006, planar(bbox(bot), 0, 0.5, 0.70, 0.045)); m_.write("float_vita_bands")
     gloss_set("float_vita", lambda g, s: fan(g, lab, T / 2 + 0.008, planar(lbb, s, 0.5, 0, 1)))
 
     img = Image.new("RGBA", (TEX, TEX), (0, 0, 0, 255))
     d = ImageDraw.Draw(img)
+    scale = (TEX * 0.5) / (bb[2] - bb[0])
+    # front rim: dark plastic, arrow notch moulded at the bottom
     vgrad(d, (0, 0, TEX // 2, TEX // 2), (58, 60, 66), (34, 35, 39))
     pf = px_of(bb, 0, 0, 0.5, 0.5)
-    for k in range(5):
-        y = 0.73 + k * 0.035
-        d.line([pf(-0.45, y), pf(0.38, y)], fill=(78, 80, 88, 255), width=2)
-        d.line([pf(-0.45, y - 0.012), pf(0.38, y - 0.012)], fill=(22, 23, 26, 255), width=1)
+    d.polygon([pf(-0.13, -hh + 0.20), pf(0.13, -hh + 0.20), pf(0, -hh + 0.08)], fill=(14, 15, 18, 255), outline=(96, 98, 106, 255))
     d.line([pf(*p) for p in outline] + [pf(*outline[0])], fill=(110, 113, 122, 255), width=3)
-    vgrad(d, (TEX // 2, 0, TEX, TEX // 2), (44, 45, 50), (26, 27, 30))
+    # back: grained plastic, moulded marks, contacts in a recess
+    vgrad(d, (TEX // 2, 0, TEX, TEX // 2), (46, 47, 52), (28, 29, 32))
     pb = px_of(bb, 0.5, 0, 0.5, 0.5, mirror=True)
-    d.rounded_rectangle([pb(0.55, -0.35), pb(-0.55, -0.88)], radius=6, fill=(30, 31, 35, 255))
-    for k in range(9):
-        x = -0.48 + k * 0.12
-        a, b = pb(x + 0.04, -0.62), pb(x - 0.04, -0.84)
+    emb = (96, 98, 108, 255)
+    d.text(pb(0, 0.66), "PS", fill=emb, font=font(int(0.17 * scale)), anchor="mm")
+    d.text(pb(-0.30, 0.34), "CE", fill=emb, font=font(int(0.17 * scale), weight="regular"), anchor="mm")
+    tri = [pb(0.30, 0.46), pb(0.17, 0.23), pb(0.43, 0.23)]
+    d.polygon(tri, outline=emb, width=max(1, int(0.012 * scale)))
+    d.line([pb(0.24, 0.32), pb(0.29, 0.26), pb(0.37, 0.40)], fill=emb, width=max(1, int(0.012 * scale)))
+    d.text(pb(0, 0.10), "MADE IN CHINA", fill=emb, font=font(int(0.075 * scale)), anchor="mm")
+    d.text(pb(0, -0.10), "VCDA A6307DF6MM2UF", fill=(72, 74, 82, 255), font=font(int(0.05 * scale), weight="regular"), anchor="mm")
+    d.rounded_rectangle([pb(0.55, -0.42), pb(-0.55, -0.88)], radius=6, fill=(22, 23, 26, 255))
+    for k in range(10):
+        x = -0.49 + k * 0.109
+        a, b = pb(x + 0.035, -0.62), pb(x - 0.035, -0.84)
         d.rectangle([min(a[0], b[0]), a[1], max(a[0], b[0]), b[1]], fill=(201, 164, 82, 255))
         d.line([(min(a[0], b[0]), a[1]), (max(a[0], b[0]), a[1])], fill=(245, 214, 140, 255), width=2)
     d.line([pb(*p) for p in outline] + [pb(*outline[0])], fill=(95, 98, 106, 255), width=3)
-    side_strip(d, (70, 72, 80))
+    noise = Image.effect_noise((TEX // 2, TEX // 2), 10).convert("L")
+    grain = Image.merge("RGBA", (noise, noise, noise, Image.new("L", noise.size, 30)))
+    region = img.crop((TEX // 2, 0, TEX, TEX // 2)); region.alpha_composite(grain); img.paste(region, (TEX // 2, 0))
+    # bands: blue PS VITA strip (rows 0.56..0.67) and the white ID strip (rows 0.70..0.745)
+    bx0, by0, bx1, by1 = 0, int(0.56 * TEX), TEX // 2, int(0.67 * TEX)
+    vgrad(d, (bx0, by0, bx1, by1), (34, 62, 160), (26, 48, 136))
+    d.text(((bx0 + bx1) / 2, (by0 + by1) / 2 + 2), "PS VITA", fill=(240, 242, 250, 255), font=font(int((by1 - by0) * 0.62)), anchor="mm")
+    wy0, wy1 = int(0.70 * TEX), int(0.745 * TEX)
+    d.rectangle([bx0, wy0, bx1, wy1], fill=(241, 242, 245, 255))
+    d.line([(bx0, wy0), (bx1, wy0)], fill=(200, 202, 208, 255), width=1)
+    side_strip(d, (70, 72, 80), 0.5, 0.5, 0.55, 0.95)
     img.save(f"{OUT}/float_vita_body.png")
     return H / 2
 

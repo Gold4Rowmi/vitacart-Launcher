@@ -13896,7 +13896,7 @@ FLOAT = {
     HALF = { vita = 0.925, psp = 0.950, psx = 0.925 },
     YOFF = { vita = 0, psp = 0.015, psx = 0 },
     LAYERS = {
-        vita = { "back", "band", "front", "label", "gloss" },
+        vita = { "back", "band", "front", "label", "bands", "gloss" },
         psx = { "sheen", "back", "band", "front", "label", "gloss" },
         -- "back..." overlays belong to the back face: drawn only when it faces the camera
         psp = { "backrefl", "slotrim", "backglass", "shellback", "shellbackbevel", "sheen", "discback",
