@@ -11,7 +11,7 @@ when the item has been spun round to show its back:
 
     vita : back, band, front, label*, gloss*
     psx  : back, band, front, label*, gloss*
-    psp  : shellback, discback, shutter, band, label*, hub, shellfront, gloss*
+    psp  : backrefl*, slotrim, backglass, shellback, discback, band, label*, hub, shellfront, refl*, gloss*
     (* label is textured with the cover art, gloss only on the selected item)
 
 All models are centred on the origin. Units match RetroFlow's covers.
@@ -337,47 +337,92 @@ def variant_set(name, make, steps=GLOSS_STEPS):
         g.write(f"{name}{i}")
 
 
+def font(size, italic=False):
+    """A real TTF when one is around (Windows fonts via /mnt/c, DejaVu), else PIL's bitmap font."""
+    from PIL import ImageFont
+    names = ["arialbi.ttf", "Arial Bold Italic.ttf"] if italic else ["arialbd.ttf", "Arial Bold.ttf"]
+    names += ["DejaVuSans-BoldOblique.ttf" if italic else "DejaVuSans-Bold.ttf"]
+    dirs = ["/mnt/c/Windows/Fonts", "C:/Windows/Fonts", "/usr/share/fonts/truetype/dejavu", "/Library/Fonts"]
+    for dd in dirs:
+        for n in names:
+            try:
+                return ImageFont.truetype(os.path.join(dd, n), size)
+            except OSError:
+                pass
+    return ImageFont.load_default()
+
+
+def slot_region(mesh, slot_h, R_open, z, uvf, width=None):
+    """Back window minus the laser slot: the slot runs from a round end about the
+    hub (radius slot_h) out to the right edge, |y| < slot_h. The remaining glass
+    is star-shaped about the origin, so it is built as a ring whose inner radius
+    follows the slot edge. width: build only a thin rim strip along that edge."""
+    th_c = math.asin(slot_h / R_open)
+    angs = ([th_c + (math.pi / 2 - th_c) * i / 24 for i in range(25)]
+            + [math.pi / 2 + math.pi * i / 48 for i in range(1, 49)]
+            + [3 * math.pi / 2 + (math.pi / 2 - th_c) * i / 24 for i in range(1, 25)])
+
+    def r_in(t, h):
+        if math.cos(t) > 0:
+            return min(R_open, h / max(abs(math.sin(t)), 1e-9))
+        return h
+
+    for a0, a1 in zip(angs, angs[1:]):
+        i0, i1 = r_in(a0, slot_h), r_in(a1, slot_h)
+        o0, o1 = (r_in(a0, slot_h + width), r_in(a1, slot_h + width)) if width else (R_open, R_open)
+        if i0 >= o0 - 1e-6 and i1 >= o1 - 1e-6:
+            continue
+        pts = [(i0 * math.cos(a0), i0 * math.sin(a0)), (o0 * math.cos(a0), o0 * math.sin(a0)),
+               (o1 * math.cos(a1), o1 * math.sin(a1)), (i1 * math.cos(a1), i1 * math.sin(a1))]
+        if width:
+            # rim strip: lit edge on the slot side, shadow line on the glass side
+            mesh.quad(((pts[0][0], pts[0][1], z), (0.6, 0.978)), ((pts[1][0], pts[1][1], z), (0.6, 0.952)),
+                      ((pts[2][0], pts[2][1], z), (0.6, 0.952)), ((pts[3][0], pts[3][1], z), (0.6, 0.978)))
+        else:
+            mesh.quad(*[((x, y, z), uvf(x, y)) for x, y in pts])
+
+
 def psp_umd():
-    """Real UMD: a 60mm disc in a ~64 x 63mm shell. Circle a little larger than
-    the disc, extended down into a flat base; the disc shows on both sides
-    behind a clear window. Hi-fi version: bevelled edges, an inner lip around
-    the window, a recessed hub, plus reflection/shade overlay layers."""
+    """Real UMD: a 60mm disc in a ~65 x 64mm shell: a circle a touch larger than
+    the disc that carries on a few degrees below the centre line, then straight
+    sides, big rounded corners and a flat base just under the disc. The disc shows
+    on both sides behind a clear window; the front label has the flat white
+    centre sticker, the back window has the open laser slot cut out of it.
+    Bevelled edges, an inner lip around the window, reflection/shade overlays."""
     R_d = 0.86
-    R_s = R_d + 0.07
-    base_y = -(R_d + 0.16)
-    T, bev, rc = 0.13, 0.022, 0.10
-    r_hub, r_hole = 0.30, 0.05
+    R_s = R_d + 0.075
+    base_y = -(R_d + 0.105)
+    T, bev, rc = 0.13, 0.022, 0.15
+    r_stick, r_pin, r_lab = 0.31, 0.028, 0.26   # white centre sticker, its pin hole, label starts under it
     R_open = R_d + 0.012          # window opening
+    slot_h = 0.30                 # back: laser slot half-height (round inner end about the hub)
+    taper = 8                     # degrees the circle continues below the centre line
     seg = 72
-    outline = ([(R_s, 0.0)] + [(R_s, base_y + rc)] + arc(R_s - rc, base_y + rc, rc, 0, -90, 6)[1:]
-               + arc(-R_s + rc, base_y + rc, rc, -90, -180, 6)[1:] + [(-R_s, 0.0)]
-               + [(R_s * math.cos(math.radians(a)), R_s * math.sin(math.radians(a))) for a in range(176, 0, -4)])
+    xs, ys = R_s * math.cos(math.radians(taper)), -R_s * math.sin(math.radians(taper))
+    top = [(R_s * math.cos(math.radians(a)), R_s * math.sin(math.radians(a))) for a in range(180 + taper, -taper - 1, -4)]
+    outline = ([(xs, ys)] + [(xs, base_y + rc)] + arc(xs - rc, base_y + rc, rc, 0, -90, 6)[1:]
+               + arc(-xs + rc, base_y + rc, rc, -90, -180, 6)[1:] + [(-xs, ys)] + top[1:-1])
     outline = outline[::-1]
     inner = offset_outline(outline, bev)
     bb = bbox(outline)
     dbb = (-R_d, -R_d, R_d, R_d)
+    wbb = (-R_open, -R_open, R_open, R_open)
     zf, zb = T / 2, -T / 2
     disc_zf, disc_zb = 0.004, -0.004   # the disc sits in the middle of the shell
-    hub_z = disc_zf - 0.012
 
     # atlas regions (1024): shell front face 0..0.5 x 0..0.5, shell back 0.5..1 x 0..0.5
-    #   bevel strip rows 0.52..0.56, band rows 0.58..0.68, lip rows 0.70..0.73
-    #   disc back 0..0.5 x 0.5..1 (mirrored), hub 0.52..0.74 sq, shutter 0.77..0.98 x 0.52..0.74
+    #   bevel strip rows 0.78..0.82, band rows 0.84..0.94, inner wall rows 0.95..0.98
+    #   disc back 0..0.5 x 0.5..1 (mirrored), centre sticker 0.52..0.74 sq
     A = planar(bb, 0, 0.5, 0, 0.5)
     Ab = planar(bb, 0.5, 0.5, 0, 0.5, mirror=True)
 
-    # --- back
+    # --- back (listed first = drawn last when the back faces the camera)
+    m = Mesh(); slot_region(m, slot_h, R_open, zb + 0.001, None, width=0.014); m.write("float_psp_slotrim")
+    m = Mesh(); slot_region(m, slot_h, R_open, zb + 0.002, planar(wbb)); m.write("float_psp_backglass")
     m = Mesh(); ring_to_outline(m, R_open, inner, zb, Ab, seg * 2); m.write("float_psp_shellback")
     m = Mesh(); strip(m, inner, zb, outline, zb + bev, 0.5, 0.5, 0.78, 0.82); m.write("float_psp_shellbackbevel")
-    sx0, sx1, sy0, sy1 = -0.12, R_s - 0.02, -0.24, 0.08
-    zs = zb + 0.006
-    m = Mesh()
-    m.quad(((sx0, sy0, zs), (0.77, 0.74)), ((sx1, sy0, zs), (0.98, 0.74)), ((sx1, sy1, zs), (0.98, 0.52)), ((sx0, sy1, zs), (0.77, 0.52)))
-    m.quad(((sx0, sy0 - 0.02, zs + 0.004), (0.77, 0.745)), ((sx1, sy0 - 0.02, zs + 0.004), (0.98, 0.745)),
-           ((sx1, sy0, zs + 0.004), (0.98, 0.735)), ((sx0, sy0, zs + 0.004), (0.77, 0.735)))  # lip
-    m.write("float_psp_shutter")
     m = Mesh(); ring(m, 0.30, R_d, disc_zb - 0.004, planar(dbb), seg); m.write("float_psp_sheen")
-    m = Mesh(); ring(m, r_hole, R_d, disc_zb, planar(dbb, 0, 0.5, 0.5, 0.5, mirror=True), seg); m.write("float_psp_discback")
+    m = Mesh(); ring(m, r_pin, R_d, disc_zb, planar(dbb, 0, 0.5, 0.5, 0.5, mirror=True), seg); m.write("float_psp_discback")
     def wall_arcs(name, z_outer, z_inner):
         """Inner wall of the window split into R/T/L/B arcs (from the front)."""
         for tag, a0 in (("R", -45), ("T", 45), ("L", 135), ("B", 225)):
@@ -397,22 +442,20 @@ def psp_umd():
     m = Mesh(); band(m, outline, zb + bev, zf - bev, 0.5, 0.5, 0.84, 0.94); m.write("float_psp_band")
     # --- front
     wall_arcs("float_psp_wall", zf, disc_zf + 0.006)
-    # glass: plastic tint over the window + contact shadow where the lip overhangs the disc
-    m = Mesh(); ring(m, r_hub - 0.03, R_open, disc_zf + 0.009, planar((-R_open, -R_open, R_open, R_open)), seg); m.write("float_psp_glass")
-    m = Mesh(); ring(m, r_hub, R_d, disc_zf, planar(dbb, 0, 1, 0.02, 1), seg); m.write("float_psp_label")
-    m = Mesh(); ring(m, r_hub, R_d, disc_zf, planar(dbb), seg); m.write("float_psp_labeldisc")
-    m = Mesh(); cone_ring(m, r_hub - 0.03, hub_z, r_hub, disc_zf, lambda x, y: (0.63 + x * 0.35, 0.63 - y * 0.35), 36); m.write("float_psp_hubbevel")
-    m = Mesh(); fan(m, circle(r_hub - 0.03, 36), hub_z, planar((-r_hub, -r_hub, r_hub, r_hub), 0.52, 0.22, 0.52, 0.22)); m.write("float_psp_hub")
+    # glass: plastic tint over the whole window + contact shadow where the lip overhangs the disc
+    m = Mesh(); ring(m, 0.02, R_open, disc_zf + 0.009, planar(wbb), seg); m.write("float_psp_glass")
+    m = Mesh(); ring(m, r_lab, R_d, disc_zf, planar(dbb, 0, 1, 0.02, 1), seg); m.write("float_psp_label")
+    m = Mesh(); ring(m, r_lab, R_d, disc_zf, planar(dbb), seg); m.write("float_psp_labeldisc")
+    # flat white centre sticker on top of the label
+    m = Mesh(); fan(m, circle(r_stick, 48), disc_zf + 0.002, planar((-r_stick, -r_stick, r_stick, r_stick), 0.52, 0.22, 0.52, 0.22)); m.write("float_psp_hub")
     m = Mesh(); ring_to_outline(m, R_open, inner, zf, A, seg * 2); m.write("float_psp_shellfront")
     m = Mesh(); strip(m, inner, zf, outline, zf - bev, 0.5, 0.5, 0.78, 0.82); m.write("float_psp_shellfrontbevel")
     # overlays: clear window over the disc + the whole shell front, planar UV window (yaw-shifted)
     def overlay(g, s, z_add, scale_v=1.0):
         uv = planar(bb, s, 0.5, 0, scale_v)
-        ring(g, r_hub, R_open - 0.004, zf - 0.002 + z_add, uv, seg)  # the window surface, flush with the shell
+        ring(g, 0.02, R_open - 0.004, zf - 0.002 + z_add, uv, seg)  # the window surface, flush with the shell
         ring_to_outline(g, R_open, inner, zf + 0.003 + z_add, uv, seg * 2)
-        strip_uv = lambda pts, z: None
         # bevel as a cone-like strip with planar uv
-        per = inner
         for i in range(len(inner)):
             j = (i + 1) % len(inner)
             g.quad(((inner[i][0], inner[i][1], zf + 0.003 + z_add), uv(*inner[i])),
@@ -421,7 +464,13 @@ def psp_umd():
                    ((outline[i][0], outline[i][1], zf - bev + 0.003 + z_add), uv(*outline[i])))
     variant_set("float_psp_refl", lambda g, s: overlay(g, s, 0.0))
     variant_set("float_psp_shade", lambda g, s: overlay(g, s, 0.002))
-    gloss_set("float_psp", lambda g, s: ring(g, r_hub, R_d, disc_zf + 0.010, planar(dbb, s, 0.5, 0, 1), seg))
+    # back overlay: the environment reflected in the clear back window (not in the slot) and the shell back
+    def back_overlay(g, s):
+        uv = planar(bb, s, 0.5, 0, 1, mirror=True)
+        slot_region(g, slot_h, R_open, zb - 0.002, uv)
+        ring_to_outline(g, R_open, inner, zb - 0.003, uv, seg * 2)
+    variant_set("float_psp_backrefl", back_overlay)
+    gloss_set("float_psp", lambda g, s: ring(g, r_lab, R_d, disc_zf + 0.010, planar(dbb, s, 0.5, 0, 1), seg))
 
     # ---------------------------------------------------------------- textures
     global TEX
@@ -429,7 +478,8 @@ def psp_umd():
     img = Image.new("RGBA", (TEX, TEX), (0, 0, 0, 255))
     d = ImageDraw.Draw(img)
     white, shade = (236, 237, 240), (204, 206, 211)
-    # shell front: soft plastic gradient + faint grain, darker ring at the opening, notches, light "PSP" area
+    mark = (158, 160, 166)   # printed grey of the PSP logo and the controller mark
+    # shell front: soft plastic gradient + faint grain, darker ring at the opening, PSP logo and controller mark
     vgrad(d, (0, 0, TEX // 2, TEX // 2), (242, 243, 245), (220, 221, 226))
     pf = px_of(bb, 0, 0, 0.5, 0.5)
     c = pf(0, 0)
@@ -437,10 +487,15 @@ def psp_umd():
     for rr, col, w in [(R_open + 0.03, (178, 180, 186), 5), (R_open + 0.006, (120, 122, 128), 3)]:
         s_ = rr * scale
         d.ellipse([c[0] - s_, c[1] - s_, c[0] + s_, c[1] + s_], outline=col + (255,), width=w)
-    for x in (-R_s + 0.22, R_s - 0.22):
-        a_, b_ = pf(x - 0.05, base_y + 0.04), pf(x + 0.05, base_y + 0.14)
-        d.ellipse([min(a_[0], b_[0]), min(a_[1], b_[1]), max(a_[0], b_[0]), max(a_[1], b_[1])], fill=shade + (255,))
-        d.ellipse([min(a_[0], b_[0]) + 3, min(a_[1], b_[1]) + 3, max(a_[0], b_[0]) - 3, max(a_[1], b_[1]) - 3], fill=(224, 225, 229, 255))
+    d.text(pf(-0.64, -0.83), "PSP", fill=mark + (255,), font=font(int(0.085 * scale), italic=True), anchor="mm")
+    # controller mark: a small pad silhouette, lower right
+    gx, gy = pf(0.64, -0.83)
+    gw, gh = 0.075 * scale, 0.022 * scale
+    d.rounded_rectangle([gx - gw, gy - gh, gx + gw, gy + gh], radius=gh, fill=mark + (255,))
+    for sx in (-1, 1):
+        d.ellipse([gx + sx * gw * 0.75 - gh * 1.5, gy - gh * 1.5, gx + sx * gw * 0.75 + gh * 1.5, gy + gh * 1.5], fill=mark + (255,))
+    for sx in (-1, 1):
+        d.ellipse([gx + sx * gw * 0.72 - gh * 2.2, gy + gh * 0.1, gx + sx * gw * 0.72 + gh * 2.2, gy + gh * 3.2], fill=mark + (255,))
     d.line([pf(*p) for p in inner] + [pf(*inner[0])], fill=(200, 202, 208, 255), width=2)
     # shell back
     vgrad(d, (TEX // 2, 0, TEX, TEX // 2), (226, 227, 231), (206, 207, 212))
@@ -468,18 +523,17 @@ def psp_umd():
     for rr, col in [(0.34, (90, 92, 98)), (0.28, (160, 164, 170)), (0.12, (60, 60, 64))]:
         s_ = rr * (TEX * 0.5) / (2 * R_d)
         d.ellipse([c[0] - s_, c[1] - s_, c[0] + s_, c[1] + s_], outline=col + (255,), width=3)
-    # hub (0.52..0.74): white printed hub, faint ring, centre pin
+    # centre sticker (0.52..0.74): flat white, faint edge, UMD wordmark, pin hole
     hx0, hy0, hx1, hy1 = int(0.52 * TEX), int(0.52 * TEX), int(0.74 * TEX), int(0.74 * TEX)
-    d.ellipse([hx0, hy0, hx1, hy1], fill=(247, 248, 249, 255))
-    d.ellipse([hx0 + 10, hy0 + 10, hx1 - 10, hy1 - 10], outline=(216, 218, 222, 255), width=3)
+    d.ellipse([hx0, hy0, hx1, hy1], fill=(250, 250, 252, 255))
+    d.ellipse([hx0 + 3, hy0 + 3, hx1 - 3, hy1 - 3], outline=(214, 216, 222, 255), width=2)
     hc = ((hx0 + hx1) / 2, (hy0 + hy1) / 2)
-    d.ellipse([hc[0] - 9, hc[1] - 9, hc[0] + 9, hc[1] + 9], fill=(150, 152, 158, 255))
-    # shutter (0.77..0.98 x 0.52..0.745)
-    sx0p, sy0p, sx1p, sy1p = int(0.77 * TEX), int(0.52 * TEX), int(0.98 * TEX), int(0.745 * TEX)
-    vgrad(d, (sx0p, sy0p, sx1p, sy1p), (200, 202, 208), (166, 168, 174))
-    d.rectangle([sx0p, sy0p, sx1p, sy0p + 8], fill=(228, 230, 234, 255))
-    d.rectangle([sx1p - 10, sy0p, sx1p, sy1p], fill=(138, 140, 146, 255))
-    d.rectangle([sx0p, sy1p - 10, sx1p, sy1p], fill=(120, 122, 128, 255))  # lip
+    hs = (hx1 - hx0) / 2
+    d.text((hc[0], hc[1] - hs * 0.42), "UMD", fill=(96, 112, 150, 255), font=font(int(hs * 0.50)), anchor="mm")
+    d.text((hc[0], hc[1] - hs * 0.12), "UNIVERSAL MEDIA DISC", fill=(130, 140, 165, 255), font=font(int(hs * 0.11)), anchor="mm")
+    pr = r_pin / r_stick * hs
+    d.ellipse([hc[0] - pr, hc[1] - pr, hc[0] + pr, hc[1] + pr], fill=(150, 152, 158, 255))
+    d.ellipse([hc[0] - pr * 0.45, hc[1] - pr * 0.45, hc[0] + pr * 0.45, hc[1] + pr * 0.45], fill=(70, 72, 78, 255))
     # plastic grain on the shell faces
     noise = Image.effect_noise((TEX // 2, TEX // 2), 6).convert("L")
     grain = Image.merge("RGBA", (noise, noise, noise, Image.new("L", noise.size, 22)))

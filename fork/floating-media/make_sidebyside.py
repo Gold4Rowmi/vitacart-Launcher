@@ -23,7 +23,6 @@ import zipfile
 
 from PIL import Image, ImageDraw, ImageFont
 
-SRC_VPK, INDEX, MEDIA, OUT = sys.argv[1:5]
 TITLE_ID = "RFFLOAT01"
 TITLE = "RetroFlow Float"
 OLD = "ux0:/data/RetroFlow"
@@ -140,6 +139,7 @@ def badge_icon(path):
 
 
 def main():
+    SRC_VPK, INDEX, MEDIA, OUT = sys.argv[1:5]
     report = []
     work = tempfile.mkdtemp()
     build = os.path.join(work, "vpk")
@@ -170,4 +170,5 @@ def main():
     print("built", OUT, "work dir", build)
 
 
-main()
+if __name__ == "__main__":
+    main()

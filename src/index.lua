@@ -13893,14 +13893,15 @@ FLOAT = {
     FLICK_MAX = 900,       -- deg/s carried into the spring on release
     GRAB_W = 170, GRAB_Y0 = 40, GRAB_Y1 = 440,  -- touch area of the selected item
     GLOSS_STEPS = 9,
-    HALF = { vita = 0.925, psp = 0.975, psx = 0.925 },
-    YOFF = { vita = 0, psp = 0.045, psx = 0 },
+    HALF = { vita = 0.925, psp = 0.950, psx = 0.925 },
+    YOFF = { vita = 0, psp = 0.015, psx = 0 },
     LAYERS = {
         vita = { "back", "band", "front", "label", "gloss" },
         psx = { "sheen", "back", "band", "front", "label", "gloss" },
-        psp = { "shellback", "shellbackbevel", "shutter", "sheen", "discback",
+        -- "back..." overlays belong to the back face: drawn only when it faces the camera
+        psp = { "backrefl", "slotrim", "backglass", "shellback", "shellbackbevel", "sheen", "discback",
                 "wallbackR", "wallbackT", "wallbackL", "wallbackB", "band",
-                "label", "hubbevel", "hub", "glass", "wallR", "wallT", "wallL", "wallB",
+                "label", "hub", "glass", "wallR", "wallT", "wallL", "wallB",
                 "shellfront", "shellfrontbevel", "shade", "refl", "gloss" },
     },
 
@@ -13947,15 +13948,16 @@ function FLOAT.load_assets()
         m.body_img = Graphics.loadImage("app0:/DATA/float_" .. kind .. "_body.png")
         Graphics.setImageFilters(m.body_img, FILTER_LINEAR, FILTER_LINEAR)
         for _, name in ipairs(names) do
-            if FLOAT.VARIANT_TEX[name] then
+            local vname = name:gsub("^back", "")   -- backrefl uses the refl texture
+            if FLOAT.VARIANT_TEX[vname] then
                 local set = {}
                 for i = 0, FLOAT.GLOSS_STEPS - 1 do
-                    set[i] = Render.loadObject("app0:/DATA/float_" .. kind .. "_" .. name .. i .. ".obj", FLOAT.VARIANT_TEX[name])
+                    set[i] = Render.loadObject("app0:/DATA/float_" .. kind .. "_" .. name .. i .. ".obj", FLOAT.VARIANT_TEX[vname])
                 end
                 if name == "gloss" then m.gloss = set end
-                table.insert(m.layers, { name = name, set = set })
-            elseif name == "glass" then
-                table.insert(m.layers, { name = "glass", obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_glass.obj", FLOAT.glass_img) })
+                table.insert(m.layers, { name = name, set = set, back = vname ~= name })
+            elseif name == "glass" or name == "backglass" then
+                table.insert(m.layers, { name = name, obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_" .. name .. ".obj", FLOAT.glass_img) })
             elseif name:match("^wall") then
                 -- inner wall of the window, one arc per side; only the far side is ever drawn
                 table.insert(m.layers, { name = name, side = name:sub(-1), back = name:find("back") ~= nil,
@@ -14140,9 +14142,12 @@ function FLOAT.draw_layers(kind, icon, disc_label, px, cy, pz, rx, ry, rz, with_
         local L = m.layers[facing >= 0 and i or (n + 1 - i)]
         if L.set then
             -- view-dependent overlays: pick the mesh whose uv window matches the yaw
-            if facing > 0.15 and (with_gloss or L.name ~= "gloss") then
+            -- (measured from whichever face the overlay belongs to)
+            local vis = L.back and facing < -0.15 or (not L.back and facing > 0.15)
+            if vis and (with_gloss or L.name ~= "gloss") then
+                local yaw = L.back and (ry % 360) - 180 or ((ry + 180) % 360) - 180
                 local span = (L.name == "gloss") and 26 or 55
-                local g = math.floor(FLOAT.clamp((ry / span + 1) / 2, 0, 1) * (FLOAT.GLOSS_STEPS - 1) + 0.5)
+                local g = math.floor(FLOAT.clamp((yaw / span + 1) / 2, 0, 1) * (FLOAT.GLOSS_STEPS - 1) + 0.5)
                 Render.drawModel(L.set[g], px, cy, pz, rx, ry, rz)
             end
         elseif L.side then
