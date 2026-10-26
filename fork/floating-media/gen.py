@@ -337,11 +337,14 @@ def variant_set(name, make, steps=GLOSS_STEPS):
         g.write(f"{name}{i}")
 
 
-def font(size, italic=False):
+def font(size, italic=False, weight="bold"):
     """A real TTF when one is around (Windows fonts via /mnt/c, DejaVu), else PIL's bitmap font."""
     from PIL import ImageFont
-    names = ["arialbi.ttf", "Arial Bold Italic.ttf"] if italic else ["arialbd.ttf", "Arial Bold.ttf"]
-    names += ["DejaVuSans-BoldOblique.ttf" if italic else "DejaVuSans-Bold.ttf"]
+    if weight == "regular":
+        names = ["arial.ttf", "Arial.ttf", "DejaVuSans.ttf"]
+    else:
+        names = ["arialbi.ttf", "Arial Bold Italic.ttf"] if italic else ["arialbd.ttf", "Arial Bold.ttf"]
+        names += ["DejaVuSans-BoldOblique.ttf" if italic else "DejaVuSans-Bold.ttf"]
     dirs = ["/mnt/c/Windows/Fonts", "C:/Windows/Fonts", "/usr/share/fonts/truetype/dejavu", "/Library/Fonts"]
     for dd in dirs:
         for n in names:
@@ -390,24 +393,30 @@ def psp_umd():
     centre sticker, the back window has the open laser slot cut out of it.
     Bevelled edges, an inner lip around the window, reflection/shade overlays."""
     R_d = 0.86
-    R_s = R_d + 0.075
+    R_s = R_d + 0.085            # rim around the top and sides
     base_y = -(R_d + 0.105)
     T, bev, rc = 0.13, 0.022, 0.15
-    r_stick, r_pin, r_lab = 0.31, 0.028, 0.26   # white centre sticker, its pin hole, label starts under it
+    r_stick, r_pin, r_lab = 0.32, 0.028, 0.26   # white centre sticker, disc pin hole (back), label starts under it
     R_open = R_d + 0.012          # window opening
     slot_h = 0.30                 # back: laser slot half-height (round inner end about the hub)
-    taper = 10                    # degrees the circle continues below the centre line
+    flare = 0.03                  # the sides lean out a little below the centre line
     R_b, rc = 3.0, 0.26           # shallow bottom curve (radius, lowest point at base_y) and corner fillets
+    notch_y, notch_h, notch_d = -0.33, 0.07, 0.03   # small notch cut into the right edge
     seg = 72
-    xs, ys = R_s * math.cos(math.radians(taper)), -R_s * math.sin(math.radians(taper))
+    xs = R_s + flare
     cb = base_y + R_b             # centre of the bottom arc (on the y axis)
-    # fillet of radius rc tangent to the straight side x = xs and the bottom arc
+    # fillet of radius rc tangent to the (near vertical) side and the bottom arc
     fy = cb - math.sqrt((R_b - rc) ** 2 - (xs - rc) ** 2)
     f_ang = math.degrees(math.atan2(fy - cb, xs - rc))        # bottom-arc angle where the fillet meets it
-    top = [(R_s * math.cos(math.radians(a)), R_s * math.sin(math.radians(a))) for a in range(180 + taper, -taper - 1, -4)]
-    outline = ([(xs, ys), (xs, fy)] + arc(xs - rc, fy, rc, 0, f_ang, 6)[1:]
+    def side_x(y):                # x of the right side at height y (0 at the centre line .. fy)
+        return R_s + flare * y / fy
+    top = [(R_s * math.cos(math.radians(a)), R_s * math.sin(math.radians(a))) for a in range(180, -1, -4)]
+    nx0, nx1 = side_x(notch_y + notch_h / 2), side_x(notch_y - notch_h / 2)
+    right = [(R_s, 0.0), (nx0, notch_y + notch_h / 2), (nx0 - notch_d, notch_y + notch_h / 2),
+             (nx1 - notch_d, notch_y - notch_h / 2), (nx1, notch_y - notch_h / 2), (xs, fy)]
+    outline = (right + arc(xs - rc, fy, rc, 0, f_ang, 6)[1:]
                + arc(0, cb, R_b, f_ang, -180 - f_ang, 16)[1:]
-               + arc(-xs + rc, fy, rc, -180 - f_ang, -180, 6)[1:] + [(-xs, ys)] + top[1:-1])
+               + arc(-xs + rc, fy, rc, -180 - f_ang, -180, 6)[1:] + [(-R_s, 0.0)] + top[1:-1])
     outline = outline[::-1]
     inner = offset_outline(outline, bev)
     bb = bbox(outline)
@@ -493,15 +502,23 @@ def psp_umd():
     for rr, col, w in [(R_open + 0.03, (178, 180, 186), 5), (R_open + 0.006, (120, 122, 128), 3)]:
         s_ = rr * scale
         d.ellipse([c[0] - s_, c[1] - s_, c[0] + s_, c[1] + s_], outline=col + (255,), width=w)
-    d.text(pf(-0.64, -0.80), "PSP", fill=mark + (255,), font=font(int(0.085 * scale), italic=True), anchor="mm")
-    # controller mark: a small pad silhouette, lower right
-    gx, gy = pf(0.64, -0.775)
-    gw, gh = 0.075 * scale, 0.022 * scale
-    d.rounded_rectangle([gx - gw, gy - gh, gx + gw, gy + gh], radius=gh, fill=mark + (255,))
+    # PSP wordmark: the geometric logo drawn from strokes (two "P"s around a zig-zag "S")
+    lw = max(2, int(0.006 * scale))
+    def stroke(pts):
+        d.line([pf(*q) for q in pts], fill=mark + (255,), width=lw, joint="curve")
+    wx, wy, gw_, gh_, gap = -0.80, -0.775, 0.085, 0.045, 0.018   # left edge, centre line, glyph size
+    for k in (0, 2):
+        x0 = wx + k * (gw_ + gap)
+        stroke([(x0, wy - gh_), (x0, wy + gh_), (x0 + gw_, wy + gh_), (x0 + gw_, wy), (x0 + 0.015, wy)])
+    x0 = wx + gw_ + gap
+    stroke([(x0 + gw_, wy + gh_), (x0 + gw_ * 0.45, wy + gh_), (x0 + gw_ * 0.45, wy - gh_), (x0, wy - gh_)])
+    # controller mark: pad silhouette, lower right
+    gx, gy = pf(0.63, -0.79)
+    cw, ch = 0.055 * scale, 0.02 * scale
+    d.rounded_rectangle([gx - cw, gy - ch, gx + cw, gy + ch], radius=ch * 0.8, fill=mark + (255,))
     for sx in (-1, 1):
-        d.ellipse([gx + sx * gw * 0.75 - gh * 1.5, gy - gh * 1.5, gx + sx * gw * 0.75 + gh * 1.5, gy + gh * 1.5], fill=mark + (255,))
-    for sx in (-1, 1):
-        d.ellipse([gx + sx * gw * 0.72 - gh * 2.2, gy + gh * 0.1, gx + sx * gw * 0.72 + gh * 2.2, gy + gh * 3.2], fill=mark + (255,))
+        d.ellipse([gx + sx * cw * 0.78 - ch * 1.1, gy - ch * 0.4, gx + sx * cw * 0.78 + ch * 1.1, gy + ch * 2.6], fill=mark + (255,))
+    d.ellipse([gx - ch * 0.5, gy - ch * 1.4, gx + ch * 0.5, gy - ch * 0.6], fill=(234, 235, 238, 255))  # dip between the shoulders
     d.line([pf(*p) for p in inner] + [pf(*inner[0])], fill=(200, 202, 208, 255), width=2)
     # shell back
     vgrad(d, (TEX // 2, 0, TEX, TEX // 2), (226, 227, 231), (206, 207, 212))
@@ -510,6 +527,11 @@ def psp_umd():
     s_ = (R_open + 0.006) * scale
     d.ellipse([c[0] - s_, c[1] - s_, c[0] + s_, c[1] + s_], outline=(132, 134, 140, 255), width=3)
     d.line([pb(*p) for p in inner] + [pb(*inner[0])], fill=(188, 190, 196, 255), width=2)
+    for x in (-0.56, 0.56):   # two oval notches in the back of the base
+        a_, b_ = pb(x - 0.034, -0.895), pb(x + 0.034, -0.81)
+        box = [min(a_[0], b_[0]), min(a_[1], b_[1]), max(a_[0], b_[0]), max(a_[1], b_[1])]
+        d.ellipse(box, fill=(150, 152, 158, 255))
+        d.ellipse([box[0] + 3, box[1] + 3, box[2] - 3, box[3] - 3], fill=(236, 237, 240, 255))
     # bevel strips (front 0..0.5, back 0.5..1): bright top edge rolling to the side tone
     for r in range(int(0.78 * TEX) - 2, int(0.82 * TEX) + 3):
         t = min(1.0, max(0.0, (r - 0.78 * TEX) / (0.04 * TEX)))
@@ -535,11 +557,8 @@ def psp_umd():
     d.ellipse([hx0 + 3, hy0 + 3, hx1 - 3, hy1 - 3], outline=(214, 216, 222, 255), width=2)
     hc = ((hx0 + hx1) / 2, (hy0 + hy1) / 2)
     hs = (hx1 - hx0) / 2
-    d.text((hc[0], hc[1] - hs * 0.42), "UMD", fill=(96, 112, 150, 255), font=font(int(hs * 0.50)), anchor="mm")
-    d.text((hc[0], hc[1] - hs * 0.12), "UNIVERSAL MEDIA DISC", fill=(130, 140, 165, 255), font=font(int(hs * 0.11)), anchor="mm")
-    pr = r_pin / r_stick * hs
-    d.ellipse([hc[0] - pr, hc[1] - pr, hc[0] + pr, hc[1] + pr], fill=(150, 152, 158, 255))
-    d.ellipse([hc[0] - pr * 0.45, hc[1] - pr * 0.45, hc[0] + pr * 0.45, hc[1] + pr * 0.45], fill=(70, 72, 78, 255))
+    d.text((hc[0], hc[1] - hs * 0.10), "UMD", fill=(116, 110, 206, 255), font=font(int(hs * 0.62), weight="regular"), anchor="mm")
+    d.text((hc[0], hc[1] + hs * 0.33), "UNIVERSAL MEDIA DISC", fill=(84, 86, 104, 255), font=font(int(hs * 0.115), weight="regular"), anchor="mm")
     # plastic grain on the shell faces
     noise = Image.effect_noise((TEX // 2, TEX // 2), 6).convert("L")
     grain = Image.merge("RGBA", (noise, noise, noise, Image.new("L", noise.size, 22)))
