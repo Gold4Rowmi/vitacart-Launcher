@@ -260,22 +260,14 @@ def vita_card():
     m_ = Mesh(); fan(m_, top_band, T / 2 + 0.006, planar(tbb, 0, 0.5, 0.56, 0.11))
     bot = [(lx0, ly0), (lx1, ly0), (lx1, ly0 + 0.11), (lx0, ly0 + 0.11)]
     fan(m_, bot, T / 2 + 0.006, planar(bbox(bot), 0, 0.5, 0.70, 0.045)); m_.write("float_vita_bands")
-    def vita_gloss(g, s):
-        fan(g, outline, T / 2 + 0.008, planar(bb, s, 0.5, 0, 1))
-        fan(g, lab, T / 2 + 0.009, planar(lbb, s, 0.5, 0, 1))
-    gloss_set("float_vita", vita_gloss)
+    gloss_set("float_vita", lambda g, s: fan(g, lab, T / 2 + 0.008, planar(lbb, s, 0.5, 0, 1)))
 
     img = Image.new("RGBA", (TEX, TEX), (0, 0, 0, 255))
     d = ImageDraw.Draw(img)
     scale = (TEX * 0.5) / (bb[2] - bb[0])
     # front rim: dark plastic, arrow notch moulded at the bottom
-    vgrad(d, (0, 0, TEX // 2, TEX // 2), (74, 77, 86), (26, 27, 31))
+    vgrad(d, (0, 0, TEX // 2, TEX // 2), (58, 60, 68), (34, 35, 39))   # matte speckled plastic, same as the back
     pf = px_of(bb, 0, 0, 0.5, 0.5)
-    tri = [pf(-0.13, -hh + 0.20), pf(0.13, -hh + 0.20), pf(0, -hh + 0.08)]
-    d.polygon(tri, fill=(10, 11, 14, 255))
-    d.line([tri[0], tri[1]], fill=(190, 194, 204, 255), width=3)          # lit top edge of the recess
-    d.line([tri[1], tri[2]], fill=(70, 72, 80, 255), width=2)
-    d.polygon([pf(-0.08, -hh + 0.185), pf(0.06, -hh + 0.185), pf(0.0, -hh + 0.13)], fill=(58, 60, 70, 255))  # specular
     d.line([pf(*p) for p in outline] + [pf(*outline[0])], fill=(110, 113, 122, 255), width=3)
     # back: grained plastic, moulded marks, contacts in a recess
     vgrad(d, (TEX // 2, 0, TEX, TEX // 2), (62, 64, 72), (30, 31, 35))
@@ -306,7 +298,14 @@ def vita_card():
     d.line([pb(*p) for p in outline] + [pb(*outline[0])], fill=(95, 98, 106, 255), width=3)
     noise = Image.effect_noise((TEX // 2, TEX // 2), 22).convert("L")   # fine speckle of the moulded back
     grain = Image.merge("RGBA", (noise, noise, noise, Image.new("L", noise.size, 48)))
-    region = img.crop((TEX // 2, 0, TEX, TEX // 2)); region.alpha_composite(grain); img.paste(region, (TEX // 2, 0))
+    for ox in (0, TEX // 2):
+        region = img.crop((ox, 0, ox + TEX // 2, TEX // 2)); region.alpha_composite(grain); img.paste(region, (ox, 0))
+    d = ImageDraw.Draw(img)
+    tri = [pf(-0.13, -hh + 0.20), pf(0.13, -hh + 0.20), pf(0, -hh + 0.08)]   # glossy arrow recess on the front
+    d.polygon(tri, fill=(10, 11, 14, 255))
+    d.line([tri[0], tri[1]], fill=(190, 194, 204, 255), width=3)          # lit top edge of the recess
+    d.line([tri[1], tri[2]], fill=(70, 72, 80, 255), width=2)
+    d.polygon([pf(-0.08, -hh + 0.185), pf(0.06, -hh + 0.185), pf(0.0, -hh + 0.13)], fill=(58, 60, 70, 255))  # specular
     # bands: blue PS VITA strip (rows 0.56..0.67) and the white ID strip (rows 0.70..0.745)
     bx0, by0, bx1, by1 = 0, int(0.56 * TEX), TEX // 2, int(0.67 * TEX)
     vgrad(d, (bx0, by0, bx1, by1), (34, 62, 160), (26, 48, 136))
