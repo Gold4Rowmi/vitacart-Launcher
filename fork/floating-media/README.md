@@ -6,6 +6,17 @@ label. Every other system keeps its box but floats too. Tilting the Vita turns
 the media (accelerometer), a quick twist makes it wobble (gyro), and a gloss
 streak slides across the selected label.
 
+## Touch
+Touch the selected item and drag to spin it, right round to the back; let go
+and it springs back (a quick flick carries on spinning first). Swiping anywhere
+else still scrolls the library as normal.
+
+## Real UMD labels
+`umd_labels.py` builds `<GAME ID>_umd.png` disc labels from umdatabase.net
+scans for every PSP game in your library (run it on a PC, see its header).
+RetroFlow Float uses them as the round label on the UMD; without one the box
+art is used, cropped to a circle.
+
 ## Turn it on
 Settings → Theme → Reflection effect → cycle to **Floating media**
 (order: On → Floating media → Off). Stored as `Reflections=2` in `config.dat`.

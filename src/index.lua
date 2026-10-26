@@ -13867,13 +13867,19 @@ end
 -- Reflections setting: 0 = off, 1 = reflections, 2 = floating physical media.
 -- Vita / PSP / PS1 games are drawn as a game card / UMD / disc with the cover
 -- art as the label; every other system keeps its box but floats as well.
--- The accelerometer tilts the media and the gyro gives it a springy wobble.
--- Everything lives in one global table to stay clear of Lua's local limits.
+--  * accelerometer tilts the media, the gyro gives it a springy wobble
+--  * touch the selected item and drag to spin it (all the way round to the
+--    back); let go and it springs back
+--  * PSP: if "<cover name>_umd.png" exists next to the cover it is used as a
+--    real round disc label (see fork/floating-media/umd_labels.py)
+-- Each piece of media is a list of layers drawn back-to-front; the Vita has no
+-- depth test, so the order is reversed when the item faces away.
 -- ==========================================================================
 FLOAT = {
-    -- Tuning (flip the INVERT flags if tilting feels backwards on hardware)
+    -- Tuning (flip the INVERT flags if something feels backwards on hardware)
     INVERT_X = false,      -- left/right tilt -> yaw
     INVERT_Y = false,      -- forward/back tilt -> pitch
+    TOUCH_INVERT_Y = false,
     TILT_MAX_YAW = 22,     -- degrees of turn at full tilt
     TILT_MAX_PITCH = 14,
     TILT_RANGE = 0.35,     -- accelerometer change (g) that counts as "full tilt"
@@ -13881,16 +13887,32 @@ FLOAT = {
     SPRING = 60,           -- spring stiffness (higher = snappier)
     DAMP = 9,              -- damping (lower = wobblier)
     GYRO_KICK = 4,         -- how much a quick twist flicks the media
-    ANGLE_LIMIT = 35,
+    ANGLE_LIMIT = 35,      -- resting wobble limit (not applied while dragging)
+    DRAG_YAW = 0.45,       -- degrees per touch pixel
+    DRAG_PITCH = 0.35,
+    FLICK_MAX = 900,       -- deg/s carried into the spring on release
+    GRAB_W = 170, GRAB_Y0 = 40, GRAB_Y1 = 440,  -- touch area of the selected item
     GLOSS_STEPS = 9,
-    HALF = { vita = 0.925, psp = 0.89, psx = 0.925 },
+    HALF = { vita = 0.925, psp = 0.975, psx = 0.925 },
+    YOFF = { vita = 0, psp = 0.045, psx = 0 },
+    LAYERS = {
+        vita = { "back", "band", "front", "label", "gloss" },
+        psx = { "back", "band", "front", "label", "gloss" },
+        psp = { "shellback", "shutter", "discback", "band", "label", "hub", "shellfront", "gloss" },
+    },
 
     -- State
     loaded = false, media = {}, timer = Timer.new(), last_ms = 0, t = 0,
     sensors = nil, base_ax = nil, base_ay = nil,
     ang_x = 0, ang_y = 0, vel_x = 0, vel_y = 0,
-    deferred = nil,
+    grab = false, gx = 0, gy = 0, gvx = 0, gvy = 0,
+    deferred = nil, cur_def = nil, label_cache = {},
 }
+
+function FLOAT.clamp(v, lo, hi)
+    if v < lo then return lo elseif v > hi then return hi end
+    return v
+end
 
 function FLOAT.load()
     if FLOAT.loaded then return end
@@ -13908,30 +13930,50 @@ function FLOAT.load_assets()
     FLOAT.shadow = Render.loadObject("app0:/DATA/float_shadow.obj", FLOAT.shadow_img)
     FLOAT.gloss_img = Graphics.loadImage("app0:/DATA/float_gloss.png")
     Graphics.setImageFilters(FLOAT.gloss_img, FILTER_LINEAR, FILTER_LINEAR)
-    for _, kind in ipairs({ "vita", "psp", "psx" }) do
-        local m = { gloss = {} }
+    for kind, names in pairs(FLOAT.LAYERS) do
+        local m = { layers = {}, gloss = {} }
         m.body_img = Graphics.loadImage("app0:/DATA/float_" .. kind .. "_body.png")
         Graphics.setImageFilters(m.body_img, FILTER_LINEAR, FILTER_LINEAR)
-        m.body = Render.loadObject("app0:/DATA/float_" .. kind .. "_body.obj", m.body_img)
-        m.label = Render.loadObject("app0:/DATA/float_" .. kind .. "_label.obj", imgCoverTmp)
-        for i = 0, FLOAT.GLOSS_STEPS - 1 do
-            m.gloss[i] = Render.loadObject("app0:/DATA/float_" .. kind .. "_gloss" .. i .. ".obj", FLOAT.gloss_img)
+        for _, name in ipairs(names) do
+            if name == "gloss" then
+                for i = 0, FLOAT.GLOSS_STEPS - 1 do
+                    m.gloss[i] = Render.loadObject("app0:/DATA/float_" .. kind .. "_gloss" .. i .. ".obj", FLOAT.gloss_img)
+                end
+                table.insert(m.layers, { name = "gloss" })
+            elseif name == "label" then
+                m.label = Render.loadObject("app0:/DATA/float_" .. kind .. "_label.obj", imgCoverTmp)
+                table.insert(m.layers, { name = "label", obj = m.label })
+            else
+                table.insert(m.layers, { name = name, obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_" .. name .. ".obj", m.body_img) })
+            end
+        end
+        if kind == "psp" then
+            m.labeldisc = Render.loadObject("app0:/DATA/float_psp_labeldisc.obj", imgCoverTmp)
         end
         FLOAT.media[kind] = m
     end
     FLOAT.loaded = true
 end
 
--- Game info screen: draw the selected game's physical media instead of its box
-function FLOAT.draw_preview(kind, px, py, pz, ry)
-    FLOAT.update()
-    local m = FLOAT.media[kind]
-    if not m or not FLOAT.sel_icon then return false end
-    local _, _, rx, fry, rz = FLOAT.offsets(0, 0)
-    Render.drawModel(m.body, px, py + FLOAT.HALF[kind] + 0.1, pz, rx, ry + fry, rz)
-    Render.useTexture(m.label, FLOAT.sel_icon)
-    Render.drawModel(m.label, px, py + FLOAT.HALF[kind] + 0.1, pz, rx, ry + fry, rz)
-    return true
+-- Cover image to load for a game: a real disc label if one exists (PSP only)
+function FLOAT.label_path(file)
+    local path = file.icon_path
+    if setReflections ~= 2 or path == nil or file.app_type ~= 2 then
+        file.float_disc = nil
+        return path
+    end
+    local hit = FLOAT.label_cache[path]
+    if hit == nil then
+        local alt = path:gsub("%.png$", "_umd.png")
+        hit = (alt ~= path and System.doesFileExist(alt)) and alt or false
+        FLOAT.label_cache[path] = hit
+    end
+    if hit then
+        file.float_disc = true
+        return hit
+    end
+    file.float_disc = nil
+    return path
 end
 
 function FLOAT.sensors_on()
@@ -13951,11 +13993,38 @@ function FLOAT.sensors_off()
     FLOAT.sensors = nil
     FLOAT.base_ax = nil
     FLOAT.ang_x, FLOAT.ang_y, FLOAT.vel_x, FLOAT.vel_y = 0, 0, 0, 0
+    FLOAT.grab = false
 end
 
-function FLOAT.clamp(v, lo, hi)
-    if v < lo then return lo elseif v > hi then return hi end
-    return v
+-- Touch: called every frame from the main loop with the first touch point (or nil)
+function FLOAT.touch(x, y)
+    if x == nil then
+        if FLOAT.grab then
+            -- release: hand the drag velocity to the spring
+            FLOAT.grab = false
+            FLOAT.vel_y = FLOAT.clamp(FLOAT.gvy, -FLOAT.FLICK_MAX, FLOAT.FLICK_MAX)
+            FLOAT.vel_x = FLOAT.clamp(FLOAT.gvx, -FLOAT.FLICK_MAX, FLOAT.FLICK_MAX)
+            -- come back the short way round
+            FLOAT.ang_y = (FLOAT.ang_y + 180) % 360 - 180
+        end
+        return
+    end
+    if not FLOAT.grab then
+        if math.abs(x - 480) < FLOAT.GRAB_W and y > FLOAT.GRAB_Y0 and y < FLOAT.GRAB_Y1 then
+            FLOAT.grab = true
+            FLOAT.gx, FLOAT.gy, FLOAT.gvx, FLOAT.gvy = x, y, 0, 0
+        end
+        return
+    end
+    local dx, dy = x - FLOAT.gx, y - FLOAT.gy
+    FLOAT.gx, FLOAT.gy = x, y
+    if FLOAT.TOUCH_INVERT_Y then dy = -dy end
+    local dyaw, dpitch = dx * FLOAT.DRAG_YAW, dy * FLOAT.DRAG_PITCH
+    FLOAT.ang_y = FLOAT.ang_y + dyaw
+    FLOAT.ang_x = FLOAT.clamp(FLOAT.ang_x + dpitch, -80, 80)
+    local dt = FLOAT.dt > 0 and FLOAT.dt or 1 / 60
+    FLOAT.gvy = FLOAT.gvy * 0.6 + (dyaw / dt) * 0.4
+    FLOAT.gvx = FLOAT.gvx * 0.6 + (dpitch / dt) * 0.4
 end
 
 -- Call once per frame before drawing covers
@@ -13964,6 +14033,7 @@ function FLOAT.update()
     local now = Timer.getTime(FLOAT.timer)
     local dt = FLOAT.clamp((now - FLOAT.last_ms) / 1000, 0, 0.1)
     FLOAT.last_ms = now
+    FLOAT.dt = dt
     if dt <= 0 then return end
     FLOAT.t = FLOAT.t + dt
 
@@ -13985,6 +14055,12 @@ function FLOAT.update()
     if FLOAT.INVERT_X then tx = -tx; gy = -gy end
     if FLOAT.INVERT_Y then ty = -ty; gx = -gx end
 
+    if FLOAT.grab and showMenu ~= 0 then FLOAT.touch(nil) end
+    if FLOAT.grab then
+        FLOAT.vel_x, FLOAT.vel_y = 0, 0
+        return
+    end
+
     -- Damped spring towards the tilt target, kicked by gyro angular velocity
     local target_y = tx * FLOAT.TILT_MAX_YAW
     local target_x = -ty * FLOAT.TILT_MAX_PITCH
@@ -13992,8 +14068,11 @@ function FLOAT.update()
     local acc_x = FLOAT.SPRING * (target_x - FLOAT.ang_x) - FLOAT.DAMP * FLOAT.vel_x + math.deg(gx) * FLOAT.GYRO_KICK
     FLOAT.vel_y = FLOAT.vel_y + acc_y * dt
     FLOAT.vel_x = FLOAT.vel_x + acc_x * dt
-    FLOAT.ang_y = FLOAT.clamp(FLOAT.ang_y + FLOAT.vel_y * dt, -FLOAT.ANGLE_LIMIT, FLOAT.ANGLE_LIMIT)
-    FLOAT.ang_x = FLOAT.clamp(FLOAT.ang_x + FLOAT.vel_x * dt, -FLOAT.ANGLE_LIMIT, FLOAT.ANGLE_LIMIT)
+    FLOAT.ang_y = FLOAT.ang_y + FLOAT.vel_y * dt
+    FLOAT.ang_x = FLOAT.ang_x + FLOAT.vel_x * dt
+    -- only the gentle resting motion is clamped; a flick may swing well past
+    if math.abs(FLOAT.vel_y) < 40 then FLOAT.ang_y = FLOAT.clamp(FLOAT.ang_y, -FLOAT.ANGLE_LIMIT, FLOAT.ANGLE_LIMIT) end
+    if math.abs(FLOAT.vel_x) < 40 then FLOAT.ang_x = FLOAT.clamp(FLOAT.ang_x, -FLOAT.ANGLE_LIMIT, FLOAT.ANGLE_LIMIT) end
 end
 
 -- side: 0 = selected (centre), 1 = fully to the side. Returns y, z, rx, ry, rz offsets.
@@ -14002,6 +14081,7 @@ function FLOAT.offsets(side, index)
     local ph = (index or 0) * 1.37
     local t = FLOAT.t
     local follow = 0.35 + 0.65 * w
+    if w > 0.5 then follow = 1 elseif FLOAT.grab or math.abs(FLOAT.ang_y) > FLOAT.ANGLE_LIMIT then follow = 0.2 end
     local y = 0.08 + 0.14 * w + math.sin(t * 1.7 + ph) * (0.025 + 0.02 * w)
     local z = 0.30 * w
     local rx = FLOAT.ang_x * follow + math.sin(t * 1.1 + ph) * 1.5
@@ -14022,19 +14102,45 @@ function FLOAT.draw_shadow(px, py, pz, ry)
     Render.drawModel(FLOAT.shadow, px, py + 0.003, pz, 0, ry, 0)
 end
 
-function FLOAT.draw_media(kind, icon, px, py, pz, fy, rx, ry, rz, side)
+-- Draw one item's layers at a pose; order flips when its back faces the camera
+function FLOAT.draw_layers(kind, icon, disc_label, px, cy, pz, rx, ry, rz, with_gloss)
     local m = FLOAT.media[kind]
-    if side < 0.5 then FLOAT.sel_icon = icon end
-    FLOAT.draw_shadow(px, py, pz, ry)
-    local cy = py + FLOAT.HALF[kind] + fy
-    Render.drawModel(m.body, px, cy, pz, rx, ry, rz)
-    Render.useTexture(m.label, icon)
-    Render.drawModel(m.label, px, cy, pz, rx, ry, rz)
-    if side < 0.5 then
-        local n = FLOAT.GLOSS_STEPS - 1
-        local g = math.floor(FLOAT.clamp((ry / 26 + 1) / 2, 0, 1) * n + 0.5)
-        Render.drawModel(m.gloss[g], px, cy, pz, rx, ry, rz)
+    local facing = math.cos(math.rad(ry)) * math.cos(math.rad(rx))
+    local n = #m.layers
+    local label = (disc_label and m.labeldisc) or m.label
+    for i = 1, n do
+        local L = m.layers[facing >= 0 and i or (n + 1 - i)]
+        if L.name == "gloss" then
+            if with_gloss and facing > 0.15 then
+                local g = math.floor(FLOAT.clamp((ry / 26 + 1) / 2, 0, 1) * (FLOAT.GLOSS_STEPS - 1) + 0.5)
+                Render.drawModel(m.gloss[g], px, cy, pz, rx, ry, rz)
+            end
+        elseif L.name == "label" then
+            Render.useTexture(label, icon)
+            Render.drawModel(label, px, cy, pz, rx, ry, rz)
+        else
+            Render.drawModel(L.obj, px, cy, pz, rx, ry, rz)
+        end
     end
+end
+
+function FLOAT.draw_media(kind, icon, px, py, pz, fy, rx, ry, rz, side, cur_p)
+    local file = FLOAT.cur_def and cur_p and FLOAT.cur_def[cur_p]
+    local disc_label = file and file.float_disc
+    if side < 0.5 then FLOAT.sel_icon, FLOAT.sel_disc = icon, disc_label end
+    FLOAT.draw_shadow(px, py, pz, ry)
+    local cy = py + FLOAT.HALF[kind] + FLOAT.YOFF[kind] + fy
+    FLOAT.draw_layers(kind, icon, disc_label, px, cy, pz, rx, ry, rz, side < 0.5)
+end
+
+-- Game info screen: draw the selected game's physical media instead of its box
+function FLOAT.draw_preview(kind, px, py, pz, ry)
+    FLOAT.update()
+    local m = FLOAT.media[kind]
+    if not m or not FLOAT.sel_icon then return false end
+    local _, _, rx, fry, rz = FLOAT.offsets(0, 0)
+    FLOAT.draw_layers(kind, FLOAT.sel_icon, FLOAT.sel_disc, px, py + FLOAT.HALF[kind] + FLOAT.YOFF[kind] + 0.1, pz, rx, ry + fry, rz, false)
+    return true
 end
 -- ==========================================================================
 
@@ -14261,7 +14367,7 @@ function FLOAT.draw_cover_real(x, y, text, icon, sel, apptype, cur_p)
         local kind = FLOAT.media_kind(apptype)
         if kind then
             FLOAT.draw_media(kind, icon, x + extrax, y + extray, -5 - extraz - zoom + fl_z,
-                fl_y, fl_rx, math.deg(rot) + fl_ry, fl_rz, abs_side_factor)
+                fl_y, fl_rx, math.deg(rot) + fl_ry, fl_rz, abs_side_factor, cur_p)
             return
         end
         FLOAT.draw_shadow(x + extrax, y + extray, -5 - extraz - zoom + fl_z, math.deg(rot) + fl_ry)
@@ -14505,7 +14611,7 @@ function queue_cover_image_load(file)
         FileLoad[file] = true
         Threads.addTask(file, {
             Type = "ImageLoad",
-            Path = file.icon_path,
+            Path = FLOAT.label_path(file),
             Table = file,
             Index = "ricon"
         })
@@ -15086,7 +15192,7 @@ function drawCategory (def)
                     FileLoad[file] = true
                     Threads.addTask(file, {
                         Type = "ImageLoad",
-                        Path = file.icon_path,
+                        Path = FLOAT.label_path(file),
                         Table = file,
                         Index = "ricon"
                     })
@@ -15169,7 +15275,7 @@ function drawCategory (def)
                             FileLoad[file] = true
                             Threads.addTask(file, {
                                 Type = "ImageLoad",
-                                Path = file.icon_path,
+                                Path = FLOAT.label_path(file),
                                 Table = file,
                                 Index = "ricon"
                             })
@@ -15287,7 +15393,7 @@ function drawCategory (def)
                         FileLoad[file] = true
                         Threads.addTask(file, {
                             Type = "ImageLoad",
-                            Path = file.icon_path,
+                            Path = FLOAT.label_path(file),
                             Table = file,
                             Index = "ricon"
                         })
@@ -15353,6 +15459,7 @@ function drawCategory (def)
 
         if setReflections == 2 then FLOAT.update() end -- FLOATING PHYSICAL MEDIA (fork)
         FLOAT.deferred = nil
+        FLOAT.cur_def = def
 
         for l, file in pairs((def)) do
 
@@ -15371,7 +15478,7 @@ function drawCategory (def)
                     FileLoad[file] = true
                     Threads.addTask(file, {
                         Type = "ImageLoad",
-                        Path = file.icon_path,
+                        Path = FLOAT.label_path(file),
                         Table = file,
                         Index = "ricon"
                     })
@@ -23744,8 +23851,9 @@ while true do
         end
         
         -- Touch Input
+        if setReflections == 2 and showView <= 4 then FLOAT.touch(x1, y1) end -- FLOATING PHYSICAL MEDIA (fork): grab & spin
         if showView ~= 6 then
-            if x1 ~= nil then
+            if x1 ~= nil and not FLOAT.grab then
                 if touchdown == 0 and delayTouch < 0.5 then
                     touchdown = 1
                     xstart = x1

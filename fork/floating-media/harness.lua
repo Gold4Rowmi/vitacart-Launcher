@@ -1,15 +1,14 @@
 -- Runs the patched FLOAT/DrawCover code against mocked lpp-vita APIs and logs
--- every Render.drawModel call as one line per draw, frames separated by "FRAME".
--- usage: luajit harness.lua float_extract.lua > draws.txt
-local now_ms = 0
-local sim_t = 0
+-- every Render.drawModel call, frames separated by "FRAME".
+-- usage: luajit harness.lua float_extract.lua [frames] > draws.txt
+-- Simulates: gentle tilt, a gyro twist at 2.5s, then a touch drag at 4s that
+-- spins the selected item round to its back and flicks it on release at 5.2s.
+local now_ms, sim_t = 0, 0
+local touch_x, touch_y = nil, nil
 
 Timer = { new = function() return {} end, getTime = function() return now_ms end }
 FILTER_LINEAR = 1
-Graphics = {
-    loadImage = function(p) return p end,
-    setImageFilters = function() end,
-}
+Graphics = { loadImage = function(p) return p end, setImageFilters = function() end }
 Render = {
     loadObject = function(path, img) return { path = path, tex = img } end,
     useTexture = function(m, img) m.tex = img end,
@@ -21,51 +20,59 @@ Render = {
     end,
     setCamera = function() end,
 }
--- Simulated hands: slow tilt left/right and forward/back, plus a quick twist at 2.5s
+System = { doesFileExist = function(p) return p:find("umd_real") ~= nil end }
 Controls = {
     enableGyro = function() end, disableGyro = function() end,
-    readAccel = function()
-        return 0.30 * math.sin(sim_t * 1.3), -0.6 + 0.18 * math.sin(sim_t * 0.9), -0.8
-    end,
+    readAccel = function() return 0.30 * math.sin(sim_t * 1.3), -0.6 + 0.18 * math.sin(sim_t * 0.9), -0.8 end,
     readGyro = function()
         local kick = (sim_t > 2.5 and sim_t < 2.65) and 3.0 or 0
         return 0.05 * math.cos(sim_t * 0.9), 0.4 * math.cos(sim_t * 1.3) + kick, 0
     end,
+    readTouch = function() return touch_x, touch_y end,
 }
 
--- Globals DrawCover reads (these are upvalues in the real file)
 showView, smoothScrolling, showCat, quick_scrolling_factor = 0, 1, 1, 0
-hideBoxes, setReflections = 0, 2
+hideBoxes, setReflections, showMenu = 0, 2, 0
 imgCoverTmp = "noimg"
 function load_cover_models_for_app_type() end
 
 local src = assert(io.open(arg[1])):read("*a")
--- expose the local DrawCover for the harness
 src = src:gsub("local function DrawCover%(", "function DrawCover(")
 assert(loadstring(src, "float_extract"))()
 
--- A small library: apptypes 3=PS1, 1=Vita, 2=PSP
+-- library: apptypes 3=PS1, 1=Vita, 2=PSP (one PSP has a real disc scan)
 local def = {
-    { app_type = 3, icon = "art_psx2" }, { app_type = 1, icon = "art_vita2" },
-    { app_type = 1, icon = "art_vita" }, { app_type = 3, icon = "art_psx" },
-    { app_type = 2, icon = "art_psp" },
+    { app_type = 3, icon_path = "art_psx2.png" }, { app_type = 1, icon_path = "art_vita2.png" },
+    { app_type = 2, icon_path = "art_psp.png" }, { app_type = 3, icon_path = "art_psx.png" },
+    { app_type = 2, icon_path = "umd_real.png" },
 }
+for _, f in ipairs(def) do f.icon = FLOAT.label_path(f):gsub("%.png$", "") end
 
 local frames, fps = tonumber(arg[2]) or 120, 30
 local p, targetX = 3, 2
 for f = 1, frames do
     sim_t = (f - 1) / fps
     now_ms = math.floor(sim_t * 1000)
-    -- scroll right once at 3.0s so the selection change is visible
-    local want_p = sim_t >= 3.0 and 4 or 3
+    -- touch drag: 4.0s..5.2s, sweeping 420px right (spins ~190 deg) and 40px down
+    if sim_t >= 4.0 and sim_t < 5.2 then
+        local k = (sim_t - 4.0) / 1.2
+        touch_x, touch_y = 480 - 60 + 420 * k, 250 + 40 * k
+    else
+        touch_x, touch_y = nil, nil
+    end
+    local want_p = sim_t >= 6.0 and 5 or 3
     if want_p ~= p then p = want_p end
-    targetX = targetX + ((p - 1) - targetX) * 0.17 -- RetroFlow-like easing
+    targetX = targetX + ((p - 1) - targetX) * 0.17
     print("FRAME")
     FLOAT.update()
+    FLOAT.touch(touch_x, touch_y)
     FLOAT.deferred = nil
+    FLOAT.cur_def = def
     for l, file in ipairs(def) do
         DrawCover((l - 1) - targetX, -0.6, "", file.icon, l == p, file.app_type, l)
     end
     FLOAT.flush()
+    if f % 15 == 0 then
+        io.stderr:write(string.format("t=%.1f grab=%s ang_y=%.1f ang_x=%.1f vel_y=%.0f\n", sim_t, tostring(FLOAT.grab), FLOAT.ang_y, FLOAT.ang_x, FLOAT.vel_y))
+    end
 end
-io.stderr:write(string.format("ok: %d frames, ang_y=%.2f ang_x=%.2f\n", frames, FLOAT.ang_y, FLOAT.ang_x))
