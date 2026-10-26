@@ -11,6 +11,13 @@ Touch the selected item and drag to spin it, right round to the back; let go
 and it springs back (a quick flick carries on spinning first). Swiping anywhere
 else still scrolls the library as normal.
 
+## Fake lighting (no shaders on the Vita)
+The UMD is built from ~2.9k triangles with bevelled edges, an inner lip around
+the window and a recessed hub, on a 1024 atlas. On top of the baked shading
+three view-dependent overlay layers are picked by yaw from 9 pre-built meshes:
+`refl` (a studio environment, `float_env.png`, reflected in the clear window
+and shell), `shade` (directional darkening) and `gloss` (selected item only).
+
 ## Data-side diffraction
 The back of the UMD and the PS1 disc carry a translucent rainbow layer that is
 spun about the disc axis by the viewing angle (`FLOAT.sheen_angle`), so the

@@ -13898,7 +13898,8 @@ FLOAT = {
     LAYERS = {
         vita = { "back", "band", "front", "label", "gloss" },
         psx = { "sheen", "back", "band", "front", "label", "gloss" },
-        psp = { "shellback", "shutter", "sheen", "discback", "band", "label", "hub", "shellfront", "gloss" },
+        psp = { "shellback", "shellbackbevel", "shutter", "sheen", "discback", "lipback", "band", "lip",
+                "label", "hubbevel", "hub", "shellfront", "shellfrontbevel", "shade", "refl", "gloss" },
     },
 
     -- State
@@ -13932,16 +13933,23 @@ function FLOAT.load_assets()
     Graphics.setImageFilters(FLOAT.gloss_img, FILTER_LINEAR, FILTER_LINEAR)
     FLOAT.sheen_img = Graphics.loadImage("app0:/DATA/float_sheen.png")
     Graphics.setImageFilters(FLOAT.sheen_img, FILTER_LINEAR, FILTER_LINEAR)
+    FLOAT.env_img = Graphics.loadImage("app0:/DATA/float_env.png")
+    Graphics.setImageFilters(FLOAT.env_img, FILTER_LINEAR, FILTER_LINEAR)
+    FLOAT.shade_img = Graphics.loadImage("app0:/DATA/float_shade.png")
+    Graphics.setImageFilters(FLOAT.shade_img, FILTER_LINEAR, FILTER_LINEAR)
+    FLOAT.VARIANT_TEX = { gloss = FLOAT.gloss_img, refl = FLOAT.env_img, shade = FLOAT.shade_img }
     for kind, names in pairs(FLOAT.LAYERS) do
         local m = { layers = {}, gloss = {} }
         m.body_img = Graphics.loadImage("app0:/DATA/float_" .. kind .. "_body.png")
         Graphics.setImageFilters(m.body_img, FILTER_LINEAR, FILTER_LINEAR)
         for _, name in ipairs(names) do
-            if name == "gloss" then
+            if FLOAT.VARIANT_TEX[name] then
+                local set = {}
                 for i = 0, FLOAT.GLOSS_STEPS - 1 do
-                    m.gloss[i] = Render.loadObject("app0:/DATA/float_" .. kind .. "_gloss" .. i .. ".obj", FLOAT.gloss_img)
+                    set[i] = Render.loadObject("app0:/DATA/float_" .. kind .. "_" .. name .. i .. ".obj", FLOAT.VARIANT_TEX[name])
                 end
-                table.insert(m.layers, { name = "gloss" })
+                if name == "gloss" then m.gloss = set end
+                table.insert(m.layers, { name = name, set = set })
             elseif name == "sheen" then
                 table.insert(m.layers, { name = "sheen", obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_sheen.obj", FLOAT.sheen_img) })
             elseif name == "label" then
@@ -14120,10 +14128,12 @@ function FLOAT.draw_layers(kind, icon, disc_label, px, cy, pz, rx, ry, rz, with_
     local label = (disc_label and m.labeldisc) or m.label
     for i = 1, n do
         local L = m.layers[facing >= 0 and i or (n + 1 - i)]
-        if L.name == "gloss" then
-            if with_gloss and facing > 0.15 then
-                local g = math.floor(FLOAT.clamp((ry / 26 + 1) / 2, 0, 1) * (FLOAT.GLOSS_STEPS - 1) + 0.5)
-                Render.drawModel(m.gloss[g], px, cy, pz, rx, ry, rz)
+        if L.set then
+            -- view-dependent overlays: pick the mesh whose uv window matches the yaw
+            if facing > 0.15 and (with_gloss or L.name ~= "gloss") then
+                local span = (L.name == "gloss") and 26 or 55
+                local g = math.floor(FLOAT.clamp((ry / span + 1) / 2, 0, 1) * (FLOAT.GLOSS_STEPS - 1) + 0.5)
+                Render.drawModel(L.set[g], px, cy, pz, rx, ry, rz)
             end
         elseif L.name == "sheen" then
             -- data-side diffraction: spin the colour lobes about the disc axis with the view angle

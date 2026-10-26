@@ -294,90 +294,220 @@ def ps1_disc():
     return R
 
 
-# ================================================================== PSP UMD
+# ================================================================== PSP UMD (hi-fi)
+def offset_outline(outline, d, cy=0.0):
+    """Shrink a star-shaped outline towards (0, cy) by d along each vertex ray."""
+    out = []
+    for x, y in outline:
+        yy = y - cy
+        r = math.hypot(x, yy) or 1e-6
+        k = max(0.0, (r - d) / r)
+        out.append((x * k, cy + yy * k))
+    return out
+
+
+def strip(mesh, A, zA, B, zB, u0, uw, rA, rB):
+    """Quad strip between two outlines with matching vertex order (a bevel)."""
+    per = [0.0]
+    n = len(A)
+    for i in range(n):
+        per.append(per[-1] + math.dist(A[i], A[(i + 1) % n]))
+    tot = per[-1] or 1
+    for i in range(n):
+        j = (i + 1) % n
+        s0, s1 = u0 + uw * per[i] / tot, u0 + uw * per[i + 1] / tot
+        mesh.quad(((A[i][0], A[i][1], zA), (s0, rA)), ((A[j][0], A[j][1], zA), (s1, rA)),
+                  ((B[j][0], B[j][1], zB), (s1, rB)), ((B[i][0], B[i][1], zB), (s0, rB)))
+
+
+def cone_ring(mesh, r0, z0, r1, z1, uvf, seg=48):
+    """Ring whose inner and outer edges sit at different heights (a chamfer)."""
+    for i in range(seg):
+        a0, a1 = 2 * math.pi * i / seg, 2 * math.pi * (i + 1) / seg
+        p = [(r0 * math.cos(a0), r0 * math.sin(a0), z0), (r1 * math.cos(a0), r1 * math.sin(a0), z1),
+             (r1 * math.cos(a1), r1 * math.sin(a1), z1), (r0 * math.cos(a1), r0 * math.sin(a1), z0)]
+        mesh.quad(*[((x, y, z), uvf(x, y)) for x, y, z in p])
+
+
+def variant_set(name, make, steps=GLOSS_STEPS):
+    for i in range(steps):
+        s = 0.5 * i / (steps - 1)
+        g = Mesh()
+        make(g, s)
+        g.write(f"{name}{i}")
+
+
 def psp_umd():
-    """Real UMD: a 60mm disc in a ~64 x 63mm shell. The shell is a circle a
-    little larger than the disc, extended down into a flat base. The disc shows
-    on both sides: label + white hub on the front, data side + shutter on the back."""
-    R_d = 0.86            # disc radius (visible)
-    R_s = R_d + 0.07      # shell outer radius
-    base_y = -(R_d + 0.16)  # flat bottom
-    T = 0.12
-    rc = 0.10
+    """Real UMD: a 60mm disc in a ~64 x 63mm shell. Circle a little larger than
+    the disc, extended down into a flat base; the disc shows on both sides
+    behind a clear window. Hi-fi version: bevelled edges, an inner lip around
+    the window, a recessed hub, plus reflection/shade overlay layers."""
+    R_d = 0.86
+    R_s = R_d + 0.07
+    base_y = -(R_d + 0.16)
+    T, bev, rc = 0.12, 0.022, 0.10
     r_hub, r_hole = 0.30, 0.05
-    seg = 48
-    outline = ([(R_s, 0.0)] + [(R_s, base_y + rc)] + arc(R_s - rc, base_y + rc, rc, 0, -90, 4)[1:]
-               + arc(-R_s + rc, base_y + rc, rc, -90, -180, 4)[1:] + [(-R_s, 0.0)]
-               + [(R_s * math.cos(math.radians(a)), R_s * math.sin(math.radians(a))) for a in range(170, 0, -10)])
-    # outline goes clockwise from the right; make it anticlockwise for consistency
+    R_open = R_d + 0.012          # window opening
+    seg = 72
+    outline = ([(R_s, 0.0)] + [(R_s, base_y + rc)] + arc(R_s - rc, base_y + rc, rc, 0, -90, 6)[1:]
+               + arc(-R_s + rc, base_y + rc, rc, -90, -180, 6)[1:] + [(-R_s, 0.0)]
+               + [(R_s * math.cos(math.radians(a)), R_s * math.sin(math.radians(a))) for a in range(176, 0, -4)])
     outline = outline[::-1]
+    inner = offset_outline(outline, bev)
     bb = bbox(outline)
     dbb = (-R_d, -R_d, R_d, R_d)
-    disc_z_b, disc_z_f = -T / 2 + 0.014, T / 2 - 0.012
+    zf, zb = T / 2, -T / 2
+    disc_zf, disc_zb = zf - 0.045, zb + 0.045
+    hub_z = disc_zf - 0.012
 
-    # --- layers (back to front)
-    m = Mesh(); ring_to_outline(m, R_d - 0.02, outline, -T / 2, planar(bb, 0.5, 0.5, 0, 0.5, mirror=True)); m.write("float_psp_shellback")
-    m = Mesh(); ring(m, r_hole, R_d, disc_z_b, planar(dbb, 0, 0.5, 0.5, 0.5, mirror=True), seg); m.write("float_psp_discback")
-    m = Mesh(); ring(m, 0.30, R_d, disc_z_b - 0.004, planar(dbb), seg); m.write("float_psp_sheen")
-    # shutter: a tab from the left edge to just past the hub, a little below centre
-    sx0, sx1, sy0, sy1 = -0.12, R_s - 0.02, -0.24, 0.08  # appears on the LEFT when viewed from behind
-    zs = -T / 2 + 0.005
+    # atlas regions (1024): shell front face 0..0.5 x 0..0.5, shell back 0.5..1 x 0..0.5
+    #   bevel strip rows 0.52..0.56, band rows 0.58..0.68, lip rows 0.70..0.73
+    #   disc back 0..0.5 x 0.5..1 (mirrored), hub 0.52..0.74 sq, shutter 0.77..0.98 x 0.52..0.74
+    A = planar(bb, 0, 0.5, 0, 0.5)
+    Ab = planar(bb, 0.5, 0.5, 0, 0.5, mirror=True)
+
+    # --- back
+    m = Mesh(); ring_to_outline(m, R_open, inner, zb, Ab, seg * 2); m.write("float_psp_shellback")
+    m = Mesh(); strip(m, inner, zb, outline, zb + bev, 0.5, 0.5, 0.52, 0.56); m.write("float_psp_shellbackbevel")
+    sx0, sx1, sy0, sy1 = -0.12, R_s - 0.02, -0.24, 0.08
+    zs = zb + 0.006
     m = Mesh()
-    m.quad(((sx0, sy0, zs), (0.77, 0.74)), ((sx1, sy0, zs), (0.98, 0.74)),
-           ((sx1, sy1, zs), (0.98, 0.52)), ((sx0, sy1, zs), (0.77, 0.52)))
+    m.quad(((sx0, sy0, zs), (0.77, 0.74)), ((sx1, sy0, zs), (0.98, 0.74)), ((sx1, sy1, zs), (0.98, 0.52)), ((sx0, sy1, zs), (0.77, 0.52)))
+    m.quad(((sx0, sy0 - 0.02, zs + 0.004), (0.77, 0.745)), ((sx1, sy0 - 0.02, zs + 0.004), (0.98, 0.745)),
+           ((sx1, sy0, zs + 0.004), (0.98, 0.735)), ((sx0, sy0, zs + 0.004), (0.77, 0.735)))  # lip
     m.write("float_psp_shutter")
-    m = Mesh(); band(m, outline, -T / 2, T / 2, 0.5, 0.5, 0.80, 0.98); m.write("float_psp_band")
-    m = Mesh(); ring(m, r_hub, R_d, disc_z_f, planar(dbb, 0, 1, 0.02, 1), seg); m.write("float_psp_label")
-    m = Mesh(); ring(m, r_hub, R_d, disc_z_f, planar(dbb), seg); m.write("float_psp_labeldisc")  # square disc-scan label
-    m = Mesh(); fan(m, circle(r_hub, 32), disc_z_f + 0.004, planar((-r_hub, -r_hub, r_hub, r_hub), 0.52, 0.22, 0.52, 0.22)); m.write("float_psp_hub")
-    m = Mesh(); ring_to_outline(m, R_d - 0.02, outline, T / 2, planar(bb, 0, 0.5, 0, 0.5)); m.write("float_psp_shellfront")
-    gloss_set("float_psp", lambda g, s: ring(g, r_hub, R_d, disc_z_f + 0.008, planar(dbb, s, 0.5, 0, 1), seg))
+    m = Mesh(); ring(m, 0.30, R_d, disc_zb - 0.004, planar(dbb), seg); m.write("float_psp_sheen")
+    m = Mesh(); ring(m, r_hole, R_d, disc_zb, planar(dbb, 0, 0.5, 0.5, 0.5, mirror=True), seg); m.write("float_psp_discback")
+    m = Mesh(); cone_ring(m, R_open, zb, R_open - 0.015, zb + 0.035, lambda x, y: (0.2, 0.715), seg); m.write("float_psp_lipback")
+    # --- side
+    m = Mesh(); band(m, outline, zb + bev, zf - bev, 0.0, 1.0, 0.58, 0.68); m.write("float_psp_band")
+    # --- front
+    m = Mesh(); cone_ring(m, R_open - 0.015, zf - 0.035, R_open, zf, lambda x, y: (0.2, 0.715), seg); m.write("float_psp_lip")
+    m = Mesh(); ring(m, r_hub, R_d, disc_zf, planar(dbb, 0, 1, 0.02, 1), seg); m.write("float_psp_label")
+    m = Mesh(); ring(m, r_hub, R_d, disc_zf, planar(dbb), seg); m.write("float_psp_labeldisc")
+    m = Mesh(); cone_ring(m, r_hub - 0.03, hub_z, r_hub, disc_zf, lambda x, y: (0.63 + x * 0.35, 0.63 - y * 0.35), 36); m.write("float_psp_hubbevel")
+    m = Mesh(); fan(m, circle(r_hub - 0.03, 36), hub_z, planar((-r_hub, -r_hub, r_hub, r_hub), 0.52, 0.22, 0.52, 0.22)); m.write("float_psp_hub")
+    m = Mesh(); ring_to_outline(m, R_open, inner, zf, A, seg * 2); m.write("float_psp_shellfront")
+    m = Mesh(); strip(m, inner, zf, outline, zf - bev, 0.0, 0.5, 0.52, 0.56); m.write("float_psp_shellfrontbevel")
+    # overlays: clear window over the disc + the whole shell front, planar UV window (yaw-shifted)
+    def overlay(g, s, z_add, scale_v=1.0):
+        uv = planar(bb, s, 0.5, 0, scale_v)
+        ring(g, r_hub, R_open - 0.015, disc_zf + 0.006 + z_add, uv, seg)
+        ring_to_outline(g, R_open, inner, zf + 0.003 + z_add, uv, seg * 2)
+        strip_uv = lambda pts, z: None
+        # bevel as a cone-like strip with planar uv
+        per = inner
+        for i in range(len(inner)):
+            j = (i + 1) % len(inner)
+            g.quad(((inner[i][0], inner[i][1], zf + 0.003 + z_add), uv(*inner[i])),
+                   ((inner[j][0], inner[j][1], zf + 0.003 + z_add), uv(*inner[j])),
+                   ((outline[j][0], outline[j][1], zf - bev + 0.003 + z_add), uv(*outline[j])),
+                   ((outline[i][0], outline[i][1], zf - bev + 0.003 + z_add), uv(*outline[i])))
+    variant_set("float_psp_refl", lambda g, s: overlay(g, s, 0.0))
+    variant_set("float_psp_shade", lambda g, s: overlay(g, s, 0.002))
+    gloss_set("float_psp", lambda g, s: ring(g, r_hub, R_d, disc_zf + 0.010, planar(dbb, s, 0.5, 0, 1), seg))
 
-    # --- texture atlas
+    # ---------------------------------------------------------------- textures
+    global TEX
+    TEX = 1024
     img = Image.new("RGBA", (TEX, TEX), (0, 0, 0, 255))
     d = ImageDraw.Draw(img)
-    white, shade = (238, 239, 241), (205, 207, 212)
-    # shell front (top-left): white plastic, darker ring at the disc edge, notches at the base
-    vgrad(d, (0, 0, TEX // 2, TEX // 2), white, (222, 223, 227))
+    white, shade = (236, 237, 240), (204, 206, 211)
+    # shell front: soft plastic gradient + faint grain, darker ring at the opening, notches, light "PSP" area
+    vgrad(d, (0, 0, TEX // 2, TEX // 2), (242, 243, 245), (220, 221, 226))
     pf = px_of(bb, 0, 0, 0.5, 0.5)
     c = pf(0, 0)
-    for rr, col in [(R_d + 0.02, (150, 152, 158)), (R_d - 0.005, (120, 122, 128))]:
-        s = rr * (TEX * 0.5) / (bb[2] - bb[0])
-        d.ellipse([c[0] - s, c[1] - s, c[0] + s, c[1] + s], outline=col + (255,), width=3)
+    scale = (TEX * 0.5) / (bb[2] - bb[0])
+    for rr, col, w in [(R_open + 0.03, (178, 180, 186), 5), (R_open + 0.006, (120, 122, 128), 3)]:
+        s_ = rr * scale
+        d.ellipse([c[0] - s_, c[1] - s_, c[0] + s_, c[1] + s_], outline=col + (255,), width=w)
     for x in (-R_s + 0.22, R_s - 0.22):
-        a, b = pf(x - 0.05, base_y + 0.04), pf(x + 0.05, base_y + 0.14)
-        d.ellipse([min(a[0], b[0]), min(a[1], b[1]), max(a[0], b[0]), max(a[1], b[1])], fill=shade + (255,))
-    d.line([pf(*p) for p in outline] + [pf(*outline[0])], fill=(190, 192, 198, 255), width=3)
-    # shell back (top-right, mirrored): same plastic, slightly duller
-    vgrad(d, (TEX // 2, 0, TEX, TEX // 2), (228, 229, 232), (212, 213, 217))
+        a_, b_ = pf(x - 0.05, base_y + 0.04), pf(x + 0.05, base_y + 0.14)
+        d.ellipse([min(a_[0], b_[0]), min(a_[1], b_[1]), max(a_[0], b_[0]), max(a_[1], b_[1])], fill=shade + (255,))
+        d.ellipse([min(a_[0], b_[0]) + 3, min(a_[1], b_[1]) + 3, max(a_[0], b_[0]) - 3, max(a_[1], b_[1]) - 3], fill=(224, 225, 229, 255))
+    d.line([pf(*p) for p in inner] + [pf(*inner[0])], fill=(200, 202, 208, 255), width=2)
+    # shell back
+    vgrad(d, (TEX // 2, 0, TEX, TEX // 2), (226, 227, 231), (206, 207, 212))
     pb = px_of(bb, 0.5, 0, 0.5, 0.5, mirror=True)
     c = pb(0, 0)
-    s = (R_d + 0.02) * (TEX * 0.5) / (bb[2] - bb[0])
-    d.ellipse([c[0] - s, c[1] - s, c[0] + s, c[1] + s], outline=(140, 142, 148, 255), width=3)
-    d.line([pb(*p) for p in outline] + [pb(*outline[0])], fill=(175, 177, 183, 255), width=3)
-    # disc back (bottom-left): silver data side with a rainbow sweep
+    s_ = (R_open + 0.006) * scale
+    d.ellipse([c[0] - s_, c[1] - s_, c[0] + s_, c[1] + s_], outline=(132, 134, 140, 255), width=3)
+    d.line([pb(*p) for p in inner] + [pb(*inner[0])], fill=(188, 190, 196, 255), width=2)
+    # bevel strips (front 0..0.5, back 0.5..1): bright top edge rolling to the side tone
+    for r in range(int(0.52 * TEX), int(0.56 * TEX) + 1):
+        t = (r - 0.52 * TEX) / (0.04 * TEX)
+        v = int(250 - 40 * t)
+        d.line([(0, r), (TEX, r)], fill=(v, v, v + 3, 255))
+    # band
+    side_strip(d, (214, 215, 219), 0.0, 1.0, 0.58, 0.68)
+    # lip (dark chamfer)
+    d.rectangle([0, int(0.70 * TEX), TEX, int(0.73 * TEX)], fill=(150, 152, 158, 255))
+    # disc back (0..0.5 x 0.5..1, mirrored)
     pd = px_of(dbb, 0, 0.5, 0.5, 0.5, mirror=True)
     radial(d, pd, 0, 0, R_d, (TEX * 0.5) / (2 * R_d), lambda rr: data_side(rr, R_d, 0.34))
-    d = ImageDraw.Draw(img)
     c = pd(0, 0)
     for rr, col in [(0.34, (90, 92, 98)), (0.28, (160, 164, 170)), (0.12, (60, 60, 64))]:
-        s = rr * (TEX * 0.5) / (2 * R_d)
-        d.ellipse([c[0] - s, c[1] - s, c[0] + s, c[1] + s], outline=col + (255,), width=2)
-    # hub (0.52..0.74 square): white printed hub with a faint ring
+        s_ = rr * (TEX * 0.5) / (2 * R_d)
+        d.ellipse([c[0] - s_, c[1] - s_, c[0] + s_, c[1] + s_], outline=col + (255,), width=3)
+    # hub (0.52..0.74): white printed hub, faint ring, centre pin
     hx0, hy0, hx1, hy1 = int(0.52 * TEX), int(0.52 * TEX), int(0.74 * TEX), int(0.74 * TEX)
-    d.ellipse([hx0, hy0, hx1, hy1], fill=(246, 247, 248, 255))
-    d.ellipse([hx0 + 6, hy0 + 6, hx1 - 6, hy1 - 6], outline=(214, 216, 220, 255), width=2)
+    d.ellipse([hx0, hy0, hx1, hy1], fill=(247, 248, 249, 255))
+    d.ellipse([hx0 + 10, hy0 + 10, hx1 - 10, hy1 - 10], outline=(216, 218, 222, 255), width=3)
     hc = ((hx0 + hx1) / 2, (hy0 + hy1) / 2)
-    d.ellipse([hc[0] - 5, hc[1] - 5, hc[0] + 5, hc[1] + 5], fill=(150, 152, 158, 255))
-    # shutter (0.77..0.98 x 0.52..0.74): grey plastic tab with a lip
-    sx0p, sy0p, sx1p, sy1p = int(0.77 * TEX), int(0.52 * TEX), int(0.98 * TEX), int(0.74 * TEX)
-    vgrad(d, (sx0p, sy0p, sx1p, sy1p), (196, 198, 204), (168, 170, 176))
-    d.rectangle([sx0p, sy0p, sx1p, sy0p + 5], fill=(226, 228, 232, 255))
-    d.rectangle([sx1p - 6, sy0p, sx1p, sy1p], fill=(140, 142, 148, 255))
-    # side strip for the shell (u 0.5..1, rows 0.80..0.98)
-    side_strip(d, (215, 216, 220), 0.5, 0.5, 0.80, 0.98)
+    d.ellipse([hc[0] - 9, hc[1] - 9, hc[0] + 9, hc[1] + 9], fill=(150, 152, 158, 255))
+    # shutter (0.77..0.98 x 0.52..0.745)
+    sx0p, sy0p, sx1p, sy1p = int(0.77 * TEX), int(0.52 * TEX), int(0.98 * TEX), int(0.745 * TEX)
+    vgrad(d, (sx0p, sy0p, sx1p, sy1p), (200, 202, 208), (166, 168, 174))
+    d.rectangle([sx0p, sy0p, sx1p, sy0p + 8], fill=(228, 230, 234, 255))
+    d.rectangle([sx1p - 10, sy0p, sx1p, sy1p], fill=(138, 140, 146, 255))
+    d.rectangle([sx0p, sy1p - 10, sx1p, sy1p], fill=(120, 122, 128, 255))  # lip
+    # plastic grain on the shell faces
+    noise = Image.effect_noise((TEX // 2, TEX // 2), 6).convert("L")
+    grain = Image.merge("RGBA", (noise, noise, noise, Image.new("L", noise.size, 22)))
+    for ox in (0, TEX // 2):
+        region = img.crop((ox, 0, ox + TEX // 2, TEX // 2))
+        region.alpha_composite(grain)
+        img.paste(region, (ox, 0))
     img.save(f"{OUT}/float_psp_body.png")
-    return (bb[3] - bb[1]) / 2, -(bb[1] + bb[3]) / 2  # half height, vertical centring offset
+    TEX = 512
+    return (bb[3] - bb[1]) / 2, -(bb[1] + bb[3]) / 2
+
+
+def env_texture():
+    """Studio environment with baked alpha: what the clear window and glossy
+    shell reflect. A wide strip; overlays slide a half-width window across it
+    as the item yaws."""
+    w, h = 1024, 512
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    px = img.load()
+    for y in range(h):
+        for x in range(w):
+            u, v = x / w, y / h
+            # soft ceiling light + darker floor
+            base = 0.16 * (1 - v) ** 1.5 + 0.04
+            # two softbox panels drifting across the strip
+            sb = 0.0
+            for cx, wdt, hgt in ((0.33, 0.07, 0.42), (0.78, 0.05, 0.36)):
+                dx = (u - cx) / wdt
+                dy = (v - 0.22) / hgt
+                sb += math.exp(-(dx * dx) * 2.2) * max(0.0, 1 - dy * dy) * 0.55
+            a = min(1.0, base + sb)
+            tint = (255, 252, 246) if sb > 0.05 else (210, 225, 245)
+            px[x, y] = (tint[0], tint[1], tint[2], int(255 * a * 0.75))
+    img.filter(ImageFilter.GaussianBlur(2)).save(f"{OUT}/float_env.png")
+
+
+def shade_texture():
+    """Directional shade strip: transparent on one side, darkening on the other."""
+    w, h = 1024, 64
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    px = img.load()
+    for x in range(w):
+        u = x / w
+        a = int(255 * 0.42 * max(0.0, (u - 0.5) / 0.5) ** 1.4)
+        for y in range(h):
+            px[x, y] = (8, 10, 16, a)
+    img.save(f"{OUT}/float_shade.png")
 
 
 # ================================================================== SHARED
@@ -436,5 +566,7 @@ if __name__ == "__main__":
     shadow()
     gloss_texture()
     sheen_texture()
+    env_texture()
+    shade_texture()
     print(f"half heights: vita={hv:.3f} psx={hp:.3f} psp={hu:.3f} (psp centre offset {off:+.3f})")
     print(len(os.listdir(OUT)), "files")
