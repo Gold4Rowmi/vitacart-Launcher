@@ -13894,14 +13894,16 @@ FLOAT = {
     GRAB_W = 170, GRAB_Y0 = 40, GRAB_Y1 = 440,  -- touch area of the selected item
     GLOSS_STEPS = 9,
     BACK_ONLY = { backcuts = 0.5, backetch = -0.05 },    -- pocket floors also show from the side   -- layer -> facing threshold (see draw_layers)
-    HALF = { vita = 0.925, psp = 0.956, psx = 0.925 },
+    HALF = { vita = 0.949, psp = 0.956, psx = 0.925 },
     YOFF = { vita = 0, psp = 0.018, psx = 0 },
     LAYERS = {
-        vita = { "back", "band", "front", "label", "bands", "gloss" },
+        -- pocket walls are listed before the floors: drawn after them when the back faces the camera
+        vita = { "backgloss_marks", "wallbackR", "wallbackT", "wallbackL", "wallbackB", "backgloss_pins", "backcuts", "back",
+                 "bandR", "bandT", "bandL", "bandB", "front", "well", "label", "bands", "gloss_arrow", "gloss" },
         psx = { "sheen", "back", "band", "front", "label", "gloss" },
         -- "back..." overlays belong to the back face: drawn only when it faces the camera
-        psp = { "backrefl", "slotrim", "backetch", "backglass", "backcuts", "shellback", "shellbackbevel",
-                "wallbackR", "wallbackT", "wallbackL", "wallbackB", "sheen", "discback", "bandR", "bandT", "bandL", "bandB",
+        psp = { "backrefl", "slotrim", "backetch", "backglass", "wallbackR", "wallbackT", "wallbackL", "wallbackB",
+                "backcuts", "shellback", "shellbackbevel", "sheen", "discback", "bandR", "bandT", "bandL", "bandB",
                 "label", "hub", "glass", "wallR", "wallT", "wallL", "wallB",
                 "shellfront", "shellfrontbevel", "shade", "refl", "gloss" },
     },
@@ -13950,6 +13952,7 @@ function FLOAT.load_assets()
         Graphics.setImageFilters(m.body_img, FILTER_LINEAR, FILTER_LINEAR)
         for _, name in ipairs(names) do
             local vname = name:gsub("^back", "")   -- backrefl uses the refl texture
+            vname = vname:match("^(%a+)_") or vname   -- gloss_arrow / backgloss_marks use the gloss texture
             if FLOAT.VARIANT_TEX[vname] then
                 local set = {}
                 for i = 0, FLOAT.GLOSS_STEPS - 1 do
@@ -14158,7 +14161,7 @@ function FLOAT.draw_layers(kind, icon, disc_label, px, cy, pz, rx, ry, rz, with_
             local vis = L.back and facing < -0.15 or (not L.back and facing > 0.15)
             if vis and (with_gloss or L.name ~= "gloss") then
                 local yaw = L.back and (ry % 360) - 180 or ((ry + 180) % 360) - 180
-                local span = (L.name == "gloss") and 26 or 55
+                local span = L.name:find("gloss") and 26 or 55
                 local g = math.floor(FLOAT.clamp((yaw / span + 1) / 2, 0, 1) * (FLOAT.GLOSS_STEPS - 1) + 0.5)
                 Render.drawModel(L.set[g], px, cy, pz, rx, ry, rz)
             end

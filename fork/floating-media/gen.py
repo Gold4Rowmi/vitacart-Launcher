@@ -255,103 +255,242 @@ def rainbow_sweep(img, box, ang_deg):
     img.paste(region, (x0, y0))
 
 
-# ================================================================== PS VITA CARD
+# ================================================================== PS VITA CARD (traced)
+VTRACE = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "vita_trace.json")))
+VT = dict(shell=40, well=41, white=42, blue=43, art=44, arrow=45, psvita=range(46, 52),
+          back=0, chan_l=1, chan_r=2, pins=range(3, 13), edge_circle=13, logo=(14, 15, 16),
+          made_in=range(17, 28), ce=(28, 29), gold=range(30, 40))
+VT_FC, VT_FCY, VT_BC, VT_BCY = 449.346, 201.265, 155.743, 199.965   # trace centres: front x,y / back x,y
+
+
+def vtrace_polys(i, to_model, steps=10):
+    return [clean_poly(p) for p in trace_polys_from(VTRACE, i, to_model, steps)]
+
+
+def trace_polys_from(table, i, to_model, steps=10):
+    global TRACE
+    saved = TRACE
+    TRACE = table
+    try:
+        return trace_polys(i, to_model, steps)
+    finally:
+        TRACE = saved
+
+
+def vtrace_fill(img, ids, to_model, px, colour, ss=4):
+    global TRACE
+    saved = TRACE
+    TRACE = VTRACE
+    try:
+        trace_fill(img, ids, to_model, px, colour, ss)
+    finally:
+        TRACE = saved
+
+
+def split_by_polys(outline, polys):
+    """Insert outline vertices wherever a pocket edge crosses it (so bands can be notched exactly)."""
+    out = list(outline)
+    for poly in polys:
+        n = len(poly)
+        for k in range(n):
+            (ax, ay), (bx, by) = poly[k], poly[(k + 1) % n]
+            new = []
+            m = len(out)
+            for i in range(m):
+                (px0, py0), (px1, py1) = out[i], out[(i + 1) % m]
+                new.append(out[i])
+                den = (px1 - px0) * (by - ay) - (py1 - py0) * (bx - ax)
+                if abs(den) < 1e-12:
+                    continue
+                t = ((ax - px0) * (by - ay) - (ay - py0) * (bx - ax)) / den
+                u = ((ax - px0) * (py1 - py0) - (ay - py0) * (px1 - px0)) / den
+                if 1e-4 < t < 1 - 1e-4 and -1e-4 <= u <= 1 + 1e-4:
+                    new.append((px0 + (px1 - px0) * t, py0 + (py1 - py0) * t))
+            out = new
+    return out
+
+
+def point_in_poly(x, y, poly):
+    inside = False
+    n = len(poly)
+    for i in range(n):
+        (x0, y0), (x1, y1) = poly[i], poly[(i + 1) % n]
+        if (y0 > y) != (y1 > y) and x < x0 + (x1 - x0) * (y - y0) / (y1 - y0):
+            inside = not inside
+    return inside
+
+
+def dist_to_outline(x, y, outline):
+    best = 1e9
+    n = len(outline)
+    for i in range(n):
+        (x0, y0), (x1, y1) = outline[i], outline[(i + 1) % n]
+        dx, dy = x1 - x0, y1 - y0
+        t = max(0.0, min(1.0, ((x - x0) * dx + (y - y0) * dy) / (dx * dx + dy * dy or 1e-12)))
+        best = min(best, math.hypot(x - x0 - dx * t, y - y0 - dy * t))
+    return best
+
+
+def mask_quads(mesh, polys, z, uvf, cell):
+    """Rasterise polygons (even-odd) onto a grid and emit one quad per filled cell: a mesh
+    for glyph-like shapes with holes without a triangulator. Vertices are shared."""
+    from PIL import ImageChops
+    xs = [p[0] for poly in polys for p in poly]
+    ys = [p[1] for poly in polys for p in poly]
+    x0, y0, x1, y1 = min(xs), min(ys), max(xs), max(ys)
+    nx, ny = int(math.ceil((x1 - x0) / cell)) + 1, int(math.ceil((y1 - y0) / cell)) + 1
+    mask = Image.new("1", (nx, ny), 0)
+    for poly in polys:
+        m = Image.new("1", (nx, ny), 0)
+        ImageDraw.Draw(m).polygon([((x - x0) / cell, (y1 - y) / cell) for x, y in poly], fill=1)
+        mask = ImageChops.logical_xor(mask, m)
+    px = mask.load()
+    for j in range(ny):
+        for i in range(nx):
+            if px[i, j]:
+                ax, ay = x0 + i * cell, y1 - (j + 1) * cell
+                bx, by = ax + cell, ay + cell
+                mesh.quad(((ax, ay, z), uvf(ax, ay)), ((bx, ay, z), uvf(bx, ay)), ((bx, by, z), uvf(bx, by)), ((ax, by, z), uvf(ax, by)))
+
+
 def vita_card():
-    """PS Vita game card: domed top with a small step notch on each side, a
-    chamfered bottom-left corner, a moulded arrow notch at the bottom of the
-    front. The label (cover art) carries the blue PS VITA band and the white
-    ID band; the back is grained plastic with the moulded marks and the
-    gold contacts."""
-    W, H, T = 1.36, 1.85, 0.16
-    hw, hh = W / 2, H / 2
-    step = 0.02                            # the part above the side notches is a little narrower
-    ny, nh, nd = hh - 0.46, 0.05, 0.045    # side notch: centre height, height, depth
-    chamfer, rc, sag, m = 0.14, 0.05, 0.07, 0.075
-    R_top = ((hw - step) ** 2 + sag ** 2) / (2 * sag)   # dome radius: peak at hh, sides at hh - sag
-    cy_top = hh - R_top
-
-    def dome(x0, x1, r, n=16):
-        xs_ = [x0 + (x1 - x0) * i / n for i in range(n + 1)]
-        return [(x, cy_top + math.sqrt(r * r - x * x)) for x in xs_]
-    outline = ([(-hw, -hh + chamfer), (-hw + chamfer, -hh)] + arc(hw - rc, -hh + rc, rc, 270, 360, 3)
-               + [(hw, ny - nh / 2), (hw - nd, ny - nh / 2), (hw - nd, ny + nh / 2), (hw - step, ny + nh / 2)]
-               + dome(hw - step, -(hw - step), R_top)
-               + [(-(hw - step), ny + nh / 2), (-hw + nd, ny + nh / 2), (-hw + nd, ny - nh / 2), (-hw, ny - nh / 2)])
+    """PS Vita game card from the trace: domed top, small side step notches, chamfered
+    bottom-left corner. Front: matte black shell, a shallow well holding the sticker (domed
+    blue PS VITA band, cover art, white serial band), glossy black arrow. Back: two deep
+    side channels, ten pin slots with gold contacts and a half-round edge cut (all open at
+    the bottom edge), glossy black PlayStation logo, CE and MADE IN CHINA that catch the light."""
+    global TEX
+    W, T = 1.36, 0.11
+    K = W / 254.34                         # trace pt -> model units (front shell width)
+    front = lambda X, Y: ((X - VT_FC) * K, (VT_FCY - Y) * K)
+    back = lambda X, Y: ((VT_BC - X) * K, (VT_BCY - Y) * K)   # seen from the back: trace-left is model +x
+    depth, well_d = 0.05, 0.010
+    zf, zb = T / 2, -T / 2
+    zfloor, zwell = zb + depth, zf - well_d
+    poly_area = lambda p: abs(sum(p[i][0] * p[(i + 1) % len(p)][1] - p[(i + 1) % len(p)][0] * p[i][1] for i in range(len(p))))
+    outline = clean_poly(max(vtrace_polys(VT["shell"], front, steps=14), key=poly_area))   # the drawing also holds the band cut-outs
+    pockets = ([vtrace_polys(VT["chan_l"], back)[0], vtrace_polys(VT["chan_r"], back)[0], vtrace_polys(VT["edge_circle"], back)[0]]
+               + [vtrace_polys(i, back)[0] for i in VT["pins"]])
+    outline = split_by_polys(outline, pockets)
     bb = bbox(outline)
-    m_ = Mesh(); fan(m_, outline, -T / 2, planar(bb, 0.5, 0.5, 0, 0.5, mirror=True)); m_.write("float_vita_back")
-    m_ = Mesh(); band(m_, outline, -T / 2, T / 2, 0.5, 0.5, 0.55, 0.95); m_.write("float_vita_band")
-    m_ = Mesh(); fan(m_, outline, T / 2, planar(bb, 0, 0.5, 0, 0.5)); m_.write("float_vita_front")
-    # label: sides inset m from the rim, bottom above the arrow notch, top following the dome
-    lx0, lx1, ly0, lr = -(hw - m), hw - m, -hh + 0.24, 0.03
-    R_lab = R_top - m
-    y_side = cy_top + math.sqrt(R_lab * R_lab - lx1 * lx1)
-    lab = (arc(lx0 + lr, ly0 + lr, lr, 180, 270, 3) + arc(lx1 - lr, ly0 + lr, lr, 270, 360, 3)
-           + dome(lx1, lx0, R_lab))
-    lbb = bbox(lab)
-    m_ = Mesh(); fan(m_, lab, T / 2 + 0.004, planar(lbb)); m_.write("float_vita_label")
-    # bands printed over the art: blue PS VITA band under the dome, white ID band at the bottom
-    yb = y_side - 0.20
-    top_band = [(lx0, yb), (lx1, yb)] + dome(lx1, lx0, R_lab)
-    tbb = bbox(top_band)
-    m_ = Mesh(); fan(m_, top_band, T / 2 + 0.006, planar(tbb, 0, 0.5, 0.56, 0.11))
-    bot = [(lx0, ly0), (lx1, ly0), (lx1, ly0 + 0.11), (lx0, ly0 + 0.11)]
-    fan(m_, bot, T / 2 + 0.006, planar(bbox(bot), 0, 0.5, 0.70, 0.045)); m_.write("float_vita_bands")
-    gloss_set("float_vita", lambda g, s: fan(g, lab, T / 2 + 0.008, planar(lbb, s, 0.5, 0, 1)))
+    well = max(vtrace_polys(VT["well"], front), key=poly_area)   # the outer rounded rect, not the band shapes
+    blue = vtrace_polys(VT["blue"], front)[0]
+    white = vtrace_polys(VT["white"], front)[0]
+    art = vtrace_polys(VT["art"], front)[0]
+    arrow = vtrace_polys(VT["arrow"], front)[0]
+    # sticker = blue band's dome + straight sides + white band's rounded bottom
+    abb = bbox(art)
+    sticker = ([p for p in white if p[1] < abb[1] + 1e-4] + [p for p in blue if p[1] > abb[3] - 1e-4])
+    sticker = clean_poly(sorted(sticker, key=lambda p: math.atan2(p[1], p[0])))
+    sbb = bbox(sticker)
+    A = planar(bb, 0, 0.5, 0, 0.5)
+    Ab = planar(bb, 0.5, 0.5, 0, 0.5, mirror=True)
+    wall_uv = (0.55, 0.65, 0.988, 0.962)   # rows 0.96..0.99 of the atlas: light at the face edge, dark at the floor
+    open_edge = lambda p, q: dist_to_outline((p[0] + q[0]) / 2, (p[1] + q[1]) / 2, outline) < 0.004
+    in_pocket = lambda mx, my: any(point_in_poly(mx, my, poly) for poly in pockets)
 
+    # --- back
+    def marks(g, s):
+        uv = planar(bb, s, 0.5, 0, 1, mirror=True)
+        polys = [q for i in list(VT["logo"]) + list(VT["made_in"]) + list(VT["ce"]) for q in vtrace_polys(i, back)]
+        mask_quads(g, polys, zb - 0.002, uv, 0.012)
+    variant_set("float_vita_backgloss_marks", marks)
+    def pins(g, s):                        # the gold contacts catch the light too
+        uv = planar(bb, s, 0.5, 0, 1, mirror=True)
+        for i in VT["gold"]:
+            fan(g, vtrace_polys(i, back)[0], zfloor - 0.001, uv)
+    variant_set("float_vita_backgloss_pins", pins)
+    m_ = Mesh()
+    for poly in pockets:
+        fan(m_, poly, zfloor, Ab)
+    m_.write("float_vita_backcuts")
+    m_ = Mesh(); fan(m_, outline, zb, Ab); m_.write("float_vita_back")
+    walls = {"R": Mesh(), "T": Mesh(), "L": Mesh(), "B": Mesh()}
+    for poly in pockets:
+        cx_ = sum(p[0] for p in poly) / len(poly)
+        cy_ = sum(p[1] for p in poly) / len(poly)
+        for i in range(len(poly)):
+            p0, p1 = poly[i], poly[(i + 1) % len(poly)]
+            if open_edge(p0, p1):
+                continue
+            mx, my = (p0[0] + p1[0]) / 2 - cx_, (p0[1] + p1[1]) / 2 - cy_
+            side = ("R" if mx > 0 else "L") if abs(mx) > abs(my) else ("T" if my > 0 else "B")
+            walls[side].quad(((p0[0], p0[1], zb), (wall_uv[0], wall_uv[2])), ((p1[0], p1[1], zb), (wall_uv[1], wall_uv[2])),
+                             ((p1[0], p1[1], zfloor), (wall_uv[1], wall_uv[3])), ((p0[0], p0[1], zfloor), (wall_uv[0], wall_uv[3])))
+    for k, g in walls.items():
+        g.write(f"float_vita_wallback{k}")
+    # --- side, notched where the channels open onto the edge
+    band_sides("float_vita_band", outline, zb, zf, 0.5, 0.5, 0.55, 0.95,
+               z0f=lambda mx, my: zfloor if in_pocket(mx, my) else zb)
+    # --- front
+    m_ = Mesh(); fan(m_, outline, zf, A); m_.write("float_vita_front")
+    m_ = Mesh(); fan(m_, well, zwell, A); m_.write("float_vita_well")
+    # label: the cover art, cropped to the art window's aspect (covers are taller than wide)
+    aw, ah = abb[2] - abb[0], abb[3] - abb[1]
+    cover_aspect = 250 / 320
+    vis = min(1.0, (ah / aw) * cover_aspect)       # full cover width, so only this fraction of its height shows (no squash)
+    top = min(0.13, 1 - vis)                       # cover scans carry their own PS VITA strip: crop it off the top
+    m_ = Mesh(); fan(m_, art, zwell + 0.003, planar(abb, 0, 1, top, vis)); m_.write("float_vita_label")
+    m_ = Mesh()
+    bbb, wbb_ = bbox(blue), bbox(white)
+    fan(m_, blue, zwell + 0.004, planar(bbb, 0, 0.5, 0.56, 0.11))
+    fan(m_, white, zwell + 0.004, planar(wbb_, 0, 0.5, 0.70, 0.045))
+    m_.write("float_vita_bands")
+    variant_set("float_vita_gloss_arrow", lambda g, s: fan(g, arrow, zf + 0.002, planar(bb, s, 0.5, 0, 1)))
+    gloss_set("float_vita", lambda g, s: fan(g, sticker, zwell + 0.008, planar(sbb, s, 0.5, 0, 1)))
+
+    # ---------------------------------------------------------------- texture (1024 atlas)
+    TEX = 1024
     img = Image.new("RGBA", (TEX, TEX), (0, 0, 0, 255))
     d = ImageDraw.Draw(img)
     scale = (TEX * 0.5) / (bb[2] - bb[0])
-    # front rim: dark plastic, arrow notch moulded at the bottom
-    vgrad(d, (0, 0, TEX // 2, TEX // 2), (58, 60, 68), (34, 35, 39))   # matte speckled plastic, same as the back
     pf = px_of(bb, 0, 0, 0.5, 0.5)
-    d.line([pf(*p) for p in outline] + [pf(*outline[0])], fill=(110, 113, 122, 255), width=3)
-    # back: grained plastic, moulded marks, contacts in a recess
-    vgrad(d, (TEX // 2, 0, TEX, TEX // 2), (62, 64, 72), (30, 31, 35))
     pb = px_of(bb, 0.5, 0, 0.5, 0.5, mirror=True)
-    emb, lit = (150, 153, 165, 255), (28, 29, 33, 255)
-    lw_ = max(1, int(0.012 * scale))
-    for off, col in ((2, lit), (0, emb)):   # dark shadow then the lit face: moulded, glossy
-        o = lambda q: (q[0] + off, q[1] + off)
-        # PlayStation logo: upright P over three slanted bars of the S (pb mirrors x: +x is the viewer's left)
-        def box(a, b):
-            (x0, y0), (x1, y1) = o(pb(*a)), o(pb(*b))
-            return [min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)]
-        d.rectangle(box((0.06, 0.84), (0.02, 0.60)), fill=col)
-        d.ellipse(box((0.06, 0.84), (-0.07, 0.68)), outline=col, width=max(2, int(0.04 * scale)))
-        for (ax, ay, bx, by) in ((0.15, 0.60, 0.00, 0.645), (0.07, 0.565, -0.13, 0.61), (0.14, 0.52, -0.06, 0.565)):
-            d.polygon([o(pb(ax, ay)), o(pb(bx, by)), o(pb(bx, by - 0.03)), o(pb(ax, ay - 0.03))], fill=col)
-        d.text(o(pb(0.30, 0.34)), "CE", fill=col, font=font(int(0.17 * scale), weight="regular"), anchor="mm")
-        d.polygon([o(pb(-0.30, 0.46)), o(pb(-0.43, 0.23)), o(pb(-0.17, 0.23))], outline=col, width=lw_)
-        d.line([o(pb(-0.36, 0.32)), o(pb(-0.31, 0.26)), o(pb(-0.23, 0.40))], fill=col, width=lw_)
-        d.text(o(pb(0, 0.10)), "MADE IN CHINA", fill=col, font=font(int(0.075 * scale)), anchor="mm")
+    # front: matte black, the well a touch darker with a shadow along its upper edge
+    vgrad(d, (0, 0, TEX // 2, TEX // 2), (58, 60, 68), (34, 35, 39))
+    d.polygon([pf(*p) for p in well], fill=(30, 31, 35, 255))
+    d.line([pf(*p) for p in well] + [pf(*well[0])], fill=(14, 15, 18, 255), width=4)
+    d.line([(x, y + 3) for x, y in [pf(*p) for p in well]] + [pf(*well[0])], fill=(74, 76, 86, 255), width=2)
+    d.line([pf(*p) for p in outline] + [pf(*outline[0])], fill=(110, 113, 122, 255), width=3)
+    # back: matte black, channel floors darker with a shadow under the walls, gold pins, glossy marks
+    vgrad(d, (TEX // 2, 0, TEX, TEX // 2), (62, 64, 72), (30, 31, 35))
+    for poly in pockets:
+        pts = [pb(*p) for p in poly] + [pb(*poly[0])]
+        d.polygon(pts, fill=(22, 23, 27, 255))
+        d.line(pts, fill=(8, 8, 10, 255), width=4)
+    for i in VT["gold"]:
+        vtrace_fill(img, i, back, pb, (201, 164, 82))
+        poly = vtrace_polys(i, back)[0]
+        gb = bbox(poly)
+        d.line([pb(gb[0], gb[3]), pb(gb[2], gb[3])], fill=(245, 214, 140, 255), width=2)
+    for off, col in ((2, (96, 98, 108)), (0, (10, 11, 14))):     # moulded glossy black: lit edge, then the dark face
+        shifted = lambda x, y, o=off: (pb(x, y)[0] + o, pb(x, y)[1] + o)
+        vtrace_fill(img, list(VT["logo"]) + list(VT["made_in"]) + list(VT["ce"]), back, shifted, col)
     d.text(pb(0, -0.10), "VCDA A6307DF6MM2UF", fill=(72, 74, 82, 255), font=font(int(0.05 * scale), weight="regular"), anchor="mm")
-    d.rounded_rectangle([pb(0.55, -0.42), pb(-0.55, -0.88)], radius=6, fill=(22, 23, 26, 255))
-    for k in range(10):
-        x = -0.49 + k * 0.109
-        a, b = pb(x + 0.035, -0.62), pb(x - 0.035, -0.84)
-        d.rectangle([min(a[0], b[0]), a[1], max(a[0], b[0]), b[1]], fill=(201, 164, 82, 255))
-        d.line([(min(a[0], b[0]), a[1]), (max(a[0], b[0]), a[1])], fill=(245, 214, 140, 255), width=2)
     d.line([pb(*p) for p in outline] + [pb(*outline[0])], fill=(95, 98, 106, 255), width=3)
-    noise = Image.effect_noise((TEX // 2, TEX // 2), 22).convert("L")   # fine speckle of the moulded back
-    grain = Image.merge("RGBA", (noise, noise, noise, Image.new("L", noise.size, 48)))
+    noise = Image.effect_noise((TEX // 2, TEX // 2), 22).convert("L")   # fine speckle of the moulded plastic
+    grain = Image.merge("RGBA", (noise, noise, noise, Image.new("L", noise.size, 40)))
     for ox in (0, TEX // 2):
         region = img.crop((ox, 0, ox + TEX // 2, TEX // 2)); region.alpha_composite(grain); img.paste(region, (ox, 0))
     d = ImageDraw.Draw(img)
-    tri = [pf(-0.13, -hh + 0.20), pf(0.13, -hh + 0.20), pf(0, -hh + 0.08)]   # glossy arrow recess on the front
-    d.polygon(tri, fill=(10, 11, 14, 255))
-    d.line([tri[0], tri[1]], fill=(190, 194, 204, 255), width=3)          # lit top edge of the recess
-    d.line([tri[1], tri[2]], fill=(70, 72, 80, 255), width=2)
-    d.polygon([pf(-0.08, -hh + 0.185), pf(0.06, -hh + 0.185), pf(0.0, -hh + 0.13)], fill=(58, 60, 70, 255))  # specular
-    # bands: blue PS VITA strip (rows 0.56..0.67) and the white ID strip (rows 0.70..0.745)
+    tri = [pf(*p) for p in arrow]                                          # glossy black arrow on the front
+    d.polygon(tri, fill=(8, 9, 12, 255))
+    d.line([tri[0], tri[1]], fill=(150, 154, 164, 255), width=2)
+    # bands: blue PS VITA strip (rows 0.56..0.67) with the traced white wordmark, white serial strip (0.70..0.745)
     bx0, by0, bx1, by1 = 0, int(0.56 * TEX), TEX // 2, int(0.67 * TEX)
-    vgrad(d, (bx0, by0, bx1, by1), (34, 62, 160), (26, 48, 136))
-    d.text(((bx0 + bx1) / 2, (by0 + by1) / 2 + 2), "PS VITA", fill=(240, 242, 250, 255), font=font(int((by1 - by0) * 0.62)), anchor="mm")
+    vgrad(d, (bx0, by0, bx1, by1), (18, 92, 170), (10, 70, 150))
+    vtrace_fill(img, VT["psvita"], front, px_of(bbb, 0, 0.56, 0.5, 0.11), (246, 248, 252))
     wy0, wy1 = int(0.70 * TEX), int(0.745 * TEX)
     d.rectangle([bx0, wy0, bx1, wy1], fill=(241, 242, 245, 255))
-    d.line([(bx0, wy0), (bx1, wy0)], fill=(200, 202, 208, 255), width=1)
+    d.text(((bx0 + bx1) / 2, (wy0 + wy1) / 2), "VCJS-10007", fill=(40, 42, 48, 255), font=font(int((wy1 - wy0) * 0.6), weight="regular"), anchor="mm")
     side_strip(d, (70, 72, 80), 0.5, 0.5, 0.55, 0.95)
+    for r in range(int(0.96 * TEX) - 2, int(0.99 * TEX) + 3):           # pocket wall rows: dark floor edge -> lit face edge
+        t = min(1.0, max(0.0, (r - 0.96 * TEX) / (0.03 * TEX)))
+        v = int(14 + 70 * t)
+        d.line([(TEX // 2, r), (TEX, r)], fill=(v, v, v + 4, 255))
     img.save(f"{OUT}/float_vita_body.png")
-    return H / 2
+    TEX = 512
+    return (bb[3] - bb[1]) / 2, -(bb[1] + bb[3]) / 2
 
 
 # ================================================================== PS1 DISC
@@ -938,7 +1077,7 @@ def gloss_texture():
 
 
 if __name__ == "__main__":
-    hv = vita_card()
+    hv, offv = vita_card()
     hp = ps1_disc()
     hu, off = psp_umd()
     shadow()
@@ -947,5 +1086,5 @@ if __name__ == "__main__":
     env_texture()
     shade_texture()
     glass_texture()
-    print(f"half heights: vita={hv:.3f} psx={hp:.3f} psp={hu:.3f} (psp centre offset {off:+.3f})")
+    print(f"half heights: vita={hv:.3f} (offset {offv:+.3f}) psx={hp:.3f} psp={hu:.3f} (psp centre offset {off:+.3f})")
     print(len(os.listdir(OUT)), "files")
