@@ -14143,6 +14143,11 @@ function FLOAT.draw_shadow(px, py, pz, ry)
 end
 
 -- Draw one item's layers at a pose; order flips when its back faces the camera
+-- with_gloss = the selected item: it gets every layer. Neighbours skip the detail layers
+-- (view-dependent overlays, pocket floors and walls, bevels, rims, window glass) to keep
+-- the draw count per frame down.
+FLOAT.DETAIL = { slotrim = true, backetch = true, backglass = true, backcuts = true, shellbackbevel = true,
+                 shellfrontbevel = true, glass = true, well = false }
 function FLOAT.draw_layers(kind, icon, disc_label, px, cy, pz, rx, ry, rz, with_gloss)
     local m = FLOAT.media[kind]
     local facing = math.cos(math.rad(ry)) * math.cos(math.rad(rx))
@@ -14151,7 +14156,9 @@ function FLOAT.draw_layers(kind, icon, disc_label, px, cy, pz, rx, ry, rz, with_
     local last = {}
     for i = 1, n do
         local L = m.layers[facing >= 0 and i or (n + 1 - i)]
-        if L.band then
+        if not with_gloss and (L.set or L.side or FLOAT.DETAIL[L.name] or FLOAT.BACK_ONLY[L.name]) then
+            -- neighbour: base layers only
+        elseif L.band then
             local sy, sx = math.sin(math.rad(ry)), math.sin(math.rad(rx))
             local near = (L.side == "R" and sy < -0.03) or (L.side == "L" and sy > 0.03)
                       or (L.side == "B" and sx < -0.03) or (L.side == "T" and sx > 0.03)
@@ -14160,7 +14167,7 @@ function FLOAT.draw_layers(kind, icon, disc_label, px, cy, pz, rx, ry, rz, with_
             -- view-dependent overlays: pick the mesh whose uv window matches the yaw
             -- (measured from whichever face the overlay belongs to)
             local vis = L.back and facing < -0.15 or (not L.back and facing > 0.15)
-            if vis and (with_gloss or L.name ~= "gloss") then
+            if vis then
                 local yaw = L.back and (ry % 360) - 180 or ((ry + 180) % 360) - 180
                 local span = L.name:find("gloss") and 26 or 55
                 local g = math.floor(FLOAT.clamp((yaw / span + 1) / 2, 0, 1) * (FLOAT.GLOSS_STEPS - 1) + 0.5)

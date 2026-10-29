@@ -750,49 +750,18 @@ def recess(mesh, poly, z_face, z_floor, uvf, wall_uv, skip=None, floor=True, cen
 
 
 def slot_region(mesh, slot_h, x_end, R_open, z, uvf, width=None):
-    """Back window minus the laser slot {x > x_end, |y| < slot_h} (square inner end, as traced).
-    The star-shaped part is a ring whose inner radius follows the slot edge; the two corner
-    lunes beyond the slot's long edges are added as strips. width: only a thin rim strip
-    along the slot edge (lit edge on the slot side, shadow line on the glass side)."""
-    y_top = math.sqrt(R_open * R_open - x_end * x_end)
-    rim_uv = ((0.6, 0.978), (0.6, 0.952))   # (slot side, glass side)
+    """Back window minus the laser slot {x > x_end, |y| < slot_h} (square inner end, as traced),
+    cut exactly with face_with_holes. width: only a thin rim strip along the slot edge."""
+    win = circle(R_open, 96)
+    slot = [(x_end, -slot_h), (R_open + 0.1, -slot_h), (R_open + 0.1, slot_h), (x_end, slot_h)]
     if width:
-        for sgn in (1, -1):               # long edges, clipped by the window circle
-            n = 24
-            for i in range(n):
-                xa = x_end - width + (math.sqrt(R_open ** 2 - slot_h ** 2) - x_end + width) * i / n
-                xb = x_end - width + (math.sqrt(R_open ** 2 - slot_h ** 2) - x_end + width) * (i + 1) / n
-                ya = min(slot_h + width, math.sqrt(max(0.0, R_open ** 2 - xa * xa)))
-                yb = min(slot_h + width, math.sqrt(max(0.0, R_open ** 2 - xb * xb)))
-                mesh.quad(((xa, sgn * slot_h, z), rim_uv[0]), ((xb, sgn * slot_h, z), rim_uv[0]),
-                          ((xb, sgn * yb, z), rim_uv[1]), ((xa, sgn * ya, z), rim_uv[1]))
-        mesh.quad(((x_end, -slot_h, z), rim_uv[0]), ((x_end, slot_h, z), rim_uv[0]),   # inner end
-                  ((x_end - width, slot_h, z), rim_uv[1]), ((x_end - width, -slot_h, z), rim_uv[1]))
+        h = slot_h + width
+        xc = lambda y: math.sqrt(max(0.0, R_open * R_open - y * y))
+        rim = ([(x_end - width, -h), (xc(-h), -h)] + [(xc(y), y) for y in [-h + 2 * h * k / 12 for k in range(1, 12)]]
+               + [(xc(h), h), (x_end - width, h)])
+        face_with_holes(mesh, rim, [slot], z, lambda x, y: (0.6, 0.965))
         return
-
-    def r_in(t):
-        c, s = math.cos(t), math.sin(t)
-        if c <= 1e-9:
-            return R_open
-        r_end = x_end / c
-        r_side = slot_h / abs(s) if abs(s) > 1e-9 else float("inf")
-        return min(R_open, r_end) if r_end <= r_side else R_open
-    t_c = math.atan2(slot_h, x_end)
-    angs = sorted(set([2 * math.pi * i / 192 for i in range(193)] + [t_c, 2 * math.pi - t_c]))
-    for a0, a1 in zip(angs, angs[1:]):
-        i0, i1 = r_in(a0), r_in(a1)
-        if i0 >= R_open - 1e-6 and i1 >= R_open - 1e-6:
-            continue
-        pts = [(i0 * math.cos(a0), i0 * math.sin(a0)), (R_open * math.cos(a0), R_open * math.sin(a0)),
-               (R_open * math.cos(a1), R_open * math.sin(a1)), (i1 * math.cos(a1), i1 * math.sin(a1))]
-        mesh.quad(*[((x, y, z), uvf(x, y)) for x, y in pts])
-    for sgn in (1, -1):                   # corner lunes: x_end < x < circle, slot_h < |y| < y_top
-        n = 12
-        for i in range(n):
-            ya, yb = slot_h + (y_top - slot_h) * i / n, slot_h + (y_top - slot_h) * (i + 1) / n
-            xa, xb = math.sqrt(max(0.0, R_open ** 2 - ya * ya)), math.sqrt(max(0.0, R_open ** 2 - yb * yb))
-            pts = [(x_end, sgn * ya), (xa, sgn * ya), (xb, sgn * yb), (x_end, sgn * yb)]
-            mesh.quad(*[((x, y, z), uvf(x, y)) for x, y in pts])
+    face_with_holes(mesh, win, [slot], z, uvf)
 
 
 def psp_umd():

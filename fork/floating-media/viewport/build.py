@@ -75,6 +75,7 @@ def main():
                 e["tex"] = os.path.basename(Lr.obj.tex)   # "noimg" for the label = cover art
                 if Lr.side: e["side"] = Lr.side; e["back"] = bool(Lr.back)
                 if Lr.band: e["band"] = True
+                if F.DETAIL and F.DETAIL[Lr.name]: e["detail"] = True
                 if F.BACK_ONLY and F.BACK_ONLY[Lr.name]: e["backOnly"] = float(F.BACK_ONLY[Lr.name])
             layers.append(e)
         scene["layers"][k] = layers
@@ -85,10 +86,11 @@ def main():
         for disc in ([False, True] if k in scene["labeldisc"] else [False]):
             for rx in (0, 20, -20, 60, -75):
                 for ry in (0, 30, -30, 90, 150, 180, 210, 270, 330, 45, -45, 400, -500):
-                    del draws[:]
-                    F.draw_layers(k, "ART", disc, 0.0, 0.0, 0.0, float(rx), float(ry), 3.0, True)
-                    scene["ref"].append({"kind": k, "disc": disc, "rx": rx, "ry": ry,
-                                         "draws": [[d[0], d[1], round(d[7], 3)] for d in draws]})
+                    for sel in (True, False):
+                        del draws[:]
+                        F.draw_layers(k, "ART", disc, 0.0, 0.0, 0.0, float(rx), float(ry), 3.0, sel)
+                        scene["ref"].append({"kind": k, "disc": disc, "rx": rx, "ry": ry, "sel": sel,
+                                             "draws": [[d[0], d[1], round(d[7], 3)] for d in draws]})
 
     os.makedirs(out, exist_ok=True)
     files = []

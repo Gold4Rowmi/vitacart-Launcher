@@ -73,7 +73,7 @@ summary small { color: var(--fg-dim); font-weight: 400; margin-left: 6px; }
   <button class="btn" id="b-edge">Edge</button>
   <button class="btn" id="b-spin" aria-pressed="false">Spin</button>
   <button class="btn" id="b-idle" aria-pressed="false">Float</button>
-  <button class="btn" id="b-gloss" aria-pressed="true">Gloss</button>
+  <button class="btn" id="b-gloss" aria-pressed="true">Selected</button>
   <button class="btn" id="b-wire" aria-pressed="false">Wire</button>
   <button class="btn" id="b-disc" aria-pressed="false" hidden>Disc label</button>
   <button class="btn" id="b-ab" hidden>Hold: compare</button>
@@ -128,13 +128,15 @@ function drawList(kind, disc, rx, ry, rz, withGloss) {
   const last = [];
   for (let i = 1; i <= n; i++) {
     const L = m[facing >= 0 ? i - 1 : n - i];
-    if (L.band) {
+    if (!withGloss && (L.set || L.side || L.detail || L.backOnly !== undefined)) {
+      // neighbour: base layers only
+    } else if (L.band) {
       const sy = Math.sin(rad(ry)), sx = Math.sin(rad(rx));
       const near = (L.side === 'R' && sy < -0.03) || (L.side === 'L' && sy > 0.03) || (L.side === 'B' && sx < -0.03) || (L.side === 'T' && sx > 0.03);
       if (near) last.push({ obj: L.obj, tex: L.tex, rz, layer: L.name }); else out.push({ obj: L.obj, tex: L.tex, rz, layer: L.name });
     } else if (L.set) {
       const vis = L.back ? facing < -0.15 : facing > 0.15;
-      if (vis && (withGloss || L.name !== 'gloss')) {
+      if (vis) {
         const yaw = L.back ? mod(ry, 360) - 180 : mod(ry + 180, 360) - 180;
         const span = L.name.includes('gloss') ? 26 : 55;
         const g = Math.floor(clamp((yaw / span + 1) / 2, 0, 1) * (STEPS - 1) + 0.5);
@@ -158,7 +160,7 @@ function drawList(kind, disc, rx, ry, rz, withGloss) {
 function luaCheck() {
   let bad = 0;
   for (const r of scene.ref) {
-    const mine = drawList(r.kind, r.disc, r.rx, r.ry, 3.0, true);
+    const mine = drawList(r.kind, r.disc, r.rx, r.ry, 3.0, r.sel !== false);
     const ok = mine.length === r.draws.length && mine.every((d, i) => d.obj === r.draws[i][0]
       && (d.tex === 'ART' ? r.draws[i][1] === 'ART' : r.draws[i][1].endsWith(d.tex)) && Math.abs(d.rz - r.draws[i][2]) < 0.002);
     if (!ok) { bad++; if (bad < 4) console.warn('Lua mismatch', r, mine); }
