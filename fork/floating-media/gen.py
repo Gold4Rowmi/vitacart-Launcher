@@ -16,6 +16,7 @@ when the item has been spun round to show its back:
 
 All models are centred on the origin. Units match RetroFlow's covers.
 """
+import json
 import math
 import os
 import sys
@@ -147,6 +148,41 @@ def band(mesh, poly, z0, z1, u0=0.0, uw=1.0, r0=0.55, r1=0.95):
         s0, s1 = u0 + uw * per[i] / tot, u0 + uw * per[i + 1] / tot
         mesh.quad(((p0[0], p0[1], z0), (s0, r1)), ((p1[0], p1[1], z0), (s1, r1)),
                   ((p1[0], p1[1], z1), (s1, r0)), ((p0[0], p0[1], z1), (s0, r0)))
+
+
+def split_at_y(poly, y, side):
+    """Insert vertices where the outline crosses height y on the given side (+1 right, -1 left)."""
+    out = []
+    n = len(poly)
+    for i in range(n):
+        p0, p1 = poly[i], poly[(i + 1) % n]
+        out.append(p0)
+        if (p0[1] - y) * (p1[1] - y) < 0 and (p0[0] + p1[0]) * side > 0:
+            t = (y - p0[1]) / (p1[1] - p0[1])
+            out.append((p0[0] + (p1[0] - p0[0]) * t, y))
+    return out
+
+
+def band_sides(prefix, poly, z0, z1, u0=0.0, uw=1.0, r0=0.55, r1=0.95, z0f=None):
+    """band() split into four meshes by the side each edge faces (R/T/L/B), so the Lua can
+    draw the near side last (covering the inside) and the far sides in place.
+    z0f(mx, my) -> back z for that edge (a notch where a pocket cuts through the rim)."""
+    per = [0.0]
+    n = len(poly)
+    for i in range(n):
+        per.append(per[-1] + math.dist(poly[i], poly[(i + 1) % n]))
+    tot = per[-1] or 1
+    meshes = {k: Mesh() for k in "RTLB"}
+    for i in range(n):
+        p0, p1 = poly[i], poly[(i + 1) % n]
+        mx, my = (p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2
+        side = ("R" if mx > 0 else "L") if abs(mx) > abs(my) else ("T" if my > 0 else "B")
+        s0, s1 = u0 + uw * per[i] / tot, u0 + uw * per[i + 1] / tot
+        zz = z0f(mx, my) if z0f else z0
+        meshes[side].quad(((p0[0], p0[1], zz), (s0, r1)), ((p1[0], p1[1], zz), (s1, r1)),
+                          ((p1[0], p1[1], z1), (s1, r0)), ((p0[0], p0[1], z1), (s0, r0)))
+    for k, m in meshes.items():
+        m.write(f"{prefix}{k}")
 
 
 def gloss_set(name, make_ring):
@@ -363,8 +399,8 @@ def offset_outline(outline, d, cy=0.0):
     return out
 
 
-def strip(mesh, A, zA, B, zB, u0, uw, rA, rB):
-    """Quad strip between two outlines with matching vertex order (a bevel)."""
+def strip(mesh, A, zA, B, zB, u0, uw, rA, rB, skip=None):
+    """Quad strip between two outlines with matching vertex order (a bevel). skip(mx, my) drops edges."""
     per = [0.0]
     n = len(A)
     for i in range(n):
@@ -372,6 +408,8 @@ def strip(mesh, A, zA, B, zB, u0, uw, rA, rB):
     tot = per[-1] or 1
     for i in range(n):
         j = (i + 1) % n
+        if skip and skip((B[i][0] + B[j][0]) / 2, (B[i][1] + B[j][1]) / 2):
+            continue
         s0, s1 = u0 + uw * per[i] / tot, u0 + uw * per[i + 1] / tot
         mesh.quad(((A[i][0], A[i][1], zA), (s0, rA)), ((A[j][0], A[j][1], zA), (s1, rA)),
                   ((B[j][0], B[j][1], zB), (s1, rB)), ((B[i][0], B[i][1], zB), (s0, rB)))
@@ -412,106 +450,281 @@ def font(size, italic=False, weight="bold"):
     return ImageFont.load_default()
 
 
-def slot_region(mesh, slot_h, R_open, z, uvf, width=None):
-    """Back window minus the laser slot: the slot runs from a round end about the
-    hub (radius slot_h) out to the right edge, |y| < slot_h. The remaining glass
-    is star-shaped about the origin, so it is built as a ring whose inner radius
-    follows the slot edge. width: build only a thin rim strip along that edge."""
-    th_c = math.asin(slot_h / R_open)
-    angs = ([th_c + (math.pi / 2 - th_c) * i / 24 for i in range(25)]
-            + [math.pi / 2 + math.pi * i / 48 for i in range(1, 49)]
-            + [3 * math.pi / 2 + (math.pi / 2 - th_c) * i / 24 for i in range(1, 25)])
+# ------------------------------------------------------------------ traced UMD (umd_trace.json)
+# Vector trace of a real UMD (front and back, 2026-10-30): shell outline, laser slot, the
+# back recesses, the arrow etched in the back window, the PSP / controller marks and the
+# centre sticker lettering. Everything below is scaled by the window radius.
+TRACE = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "umd_trace.json")))
+TR_WIN = 106.85                                   # window radius in the trace (pt)
+TR_FC, TR_BC, TR_CY = 428.736, 183.152, 169.03    # window centres of the front / back drawings
+TR = dict(shell=7, window=8, psp=(9, 10, 11), pad=12, sticker=13, umd=(32, 33, 34), small=range(14, 32),
+          slot=6, edge_cut=5, left_cut=2, dome=3, arrow=4)
 
-    def r_in(t, h):
-        if math.cos(t) > 0:
-            return min(R_open, h / max(abs(math.sin(t)), 1e-9))
-        return h
 
-    for a0, a1 in zip(angs, angs[1:]):
-        i0, i1 = r_in(a0, slot_h), r_in(a1, slot_h)
-        o0, o1 = (r_in(a0, slot_h + width), r_in(a1, slot_h + width)) if width else (R_open, R_open)
-        if i0 >= o0 - 1e-6 and i1 >= o1 - 1e-6:
+def trace_polys(i, to_model, steps=10):
+    """Closed polygons (model units) of trace drawing i, beziers flattened."""
+    polys, cur, last = [], [], None
+
+    def close():
+        nonlocal cur
+        if len(cur) > 2:
+            polys.append(cur)
+        cur = []
+    for it in TRACE[i]["items"]:
+        if it[0] == "re":
+            x0, y0, x1, y1 = it[1]
+            close()
+            polys.append([to_model(x0, y0), to_model(x1, y0), to_model(x1, y1), to_model(x0, y1)])
+            last = None
             continue
-        pts = [(i0 * math.cos(a0), i0 * math.sin(a0)), (o0 * math.cos(a0), o0 * math.sin(a0)),
-               (o1 * math.cos(a1), o1 * math.sin(a1)), (i1 * math.cos(a1), i1 * math.sin(a1))]
-        if width:
-            # rim strip: lit edge on the slot side, shadow line on the glass side
-            mesh.quad(((pts[0][0], pts[0][1], z), (0.6, 0.978)), ((pts[1][0], pts[1][1], z), (0.6, 0.952)),
-                      ((pts[2][0], pts[2][1], z), (0.6, 0.952)), ((pts[3][0], pts[3][1], z), (0.6, 0.978)))
+        p0 = it[1]
+        if last is None or math.dist(p0, last) > 0.05:
+            close()
+            cur.append(to_model(*p0))
+        if it[0] == "l":
+            cur.append(to_model(*it[2]))
+            last = it[2]
         else:
+            a, b, c, e = it[1:5]
+            for k in range(1, steps + 1):
+                t = k / steps
+                u = 1 - t
+                cur.append(to_model(u ** 3 * a[0] + 3 * u * u * t * b[0] + 3 * u * t * t * c[0] + t ** 3 * e[0],
+                                    u ** 3 * a[1] + 3 * u * u * t * b[1] + 3 * u * t * t * c[1] + t ** 3 * e[1]))
+            last = e
+    close()
+    return polys
+
+
+def trace_fill(img, ids, to_model, px, colour, ss=4):
+    """Fill trace drawings through px (model -> atlas pixel), even-odd so glyph counters stay open."""
+    from PIL import ImageChops
+    for i in ([ids] if isinstance(ids, int) else ids):
+        polys = [[px(*p) for p in poly] for poly in trace_polys(i, to_model)]
+        xs = [p[0] for poly in polys for p in poly]
+        ys = [p[1] for poly in polys for p in poly]
+        x0, y0, x1, y1 = int(min(xs)) - 2, int(min(ys)) - 2, int(max(xs)) + 3, int(max(ys)) + 3
+        w, h = (x1 - x0) * ss, (y1 - y0) * ss
+        mask = Image.new("1", (w, h), 0)
+        for poly in polys:
+            m = Image.new("1", (w, h), 0)
+            ImageDraw.Draw(m).polygon([((x - x0) * ss, (y - y0) * ss) for x, y in poly], fill=1)
+            mask = ImageChops.logical_xor(mask, m)
+        img.paste(colour + (255,), (x0, y0, x1, y1), mask.convert("L").resize((x1 - x0, y1 - y0), Image.LANCZOS))
+
+
+def clean_poly(poly, ccw=True):
+    """Drop repeated points, force the winding."""
+    out = []
+    for p in poly:
+        if not out or math.dist(p, out[-1]) > 1e-4:
+            out.append(p)
+    if len(out) > 1 and math.dist(out[0], out[-1]) < 1e-4:
+        out.pop()
+    area = sum(out[i][0] * out[(i + 1) % len(out)][1] - out[(i + 1) % len(out)][0] * out[i][1] for i in range(len(out)))
+    return out if (area > 0) == ccw else out[::-1]
+
+
+def edge_x(outline, y):
+    """Largest x where the outline crosses height y."""
+    best = None
+    n = len(outline)
+    for i in range(n):
+        (x0, y0), (x1, y1) = outline[i], outline[(i + 1) % n]
+        if (y0 - y) * (y1 - y) <= 0 and y0 != y1:
+            x = x0 + (x1 - x0) * (y - y0) / (y1 - y0)
+            if best is None or x > best:
+                best = x
+    return best
+
+
+def recess(mesh, poly, z_face, z_floor, uvf, wall_uv, skip=None, floor=True, centre_z=None):
+    """A pocket in a face: its floor (or a dimple cone when centre_z is given) plus the walls
+    around it. skip(p, q) = True leaves out that wall (an edge that is open to the outside)."""
+    if floor and centre_z is None:
+        fan(mesh, poly, z_floor, uvf)
+    elif floor:
+        cx = sum(p[0] for p in poly) / len(poly)
+        cy = sum(p[1] for p in poly) / len(poly)
+        for i in range(len(poly)):
+            p0, p1 = poly[i], poly[(i + 1) % len(poly)]
+            mesh.tri(((cx, cy, centre_z), uvf(cx, cy)), ((p0[0], p0[1], z_face), uvf(*p0)), ((p1[0], p1[1], z_face), uvf(*p1)))
+        return
+    for i in range(len(poly)):
+        p0, p1 = poly[i], poly[(i + 1) % len(poly)]
+        if skip and skip(p0, p1):
+            continue
+        mesh.quad(((p0[0], p0[1], z_face), (wall_uv[0], wall_uv[2])), ((p1[0], p1[1], z_face), (wall_uv[1], wall_uv[2])),
+                  ((p1[0], p1[1], z_floor), (wall_uv[1], wall_uv[3])), ((p0[0], p0[1], z_floor), (wall_uv[0], wall_uv[3])))
+
+
+def slot_region(mesh, slot_h, x_end, R_open, z, uvf, width=None):
+    """Back window minus the laser slot {x > x_end, |y| < slot_h} (square inner end, as traced).
+    The star-shaped part is a ring whose inner radius follows the slot edge; the two corner
+    lunes beyond the slot's long edges are added as strips. width: only a thin rim strip
+    along the slot edge (lit edge on the slot side, shadow line on the glass side)."""
+    y_top = math.sqrt(R_open * R_open - x_end * x_end)
+    rim_uv = ((0.6, 0.978), (0.6, 0.952))   # (slot side, glass side)
+    if width:
+        for sgn in (1, -1):               # long edges, clipped by the window circle
+            n = 24
+            for i in range(n):
+                xa = x_end - width + (math.sqrt(R_open ** 2 - slot_h ** 2) - x_end + width) * i / n
+                xb = x_end - width + (math.sqrt(R_open ** 2 - slot_h ** 2) - x_end + width) * (i + 1) / n
+                ya = min(slot_h + width, math.sqrt(max(0.0, R_open ** 2 - xa * xa)))
+                yb = min(slot_h + width, math.sqrt(max(0.0, R_open ** 2 - xb * xb)))
+                mesh.quad(((xa, sgn * slot_h, z), rim_uv[0]), ((xb, sgn * slot_h, z), rim_uv[0]),
+                          ((xb, sgn * yb, z), rim_uv[1]), ((xa, sgn * ya, z), rim_uv[1]))
+        mesh.quad(((x_end, -slot_h, z), rim_uv[0]), ((x_end, slot_h, z), rim_uv[0]),   # inner end
+                  ((x_end - width, slot_h, z), rim_uv[1]), ((x_end - width, -slot_h, z), rim_uv[1]))
+        return
+
+    def r_in(t):
+        c, s = math.cos(t), math.sin(t)
+        if c <= 1e-9:
+            return R_open
+        r_end = x_end / c
+        r_side = slot_h / abs(s) if abs(s) > 1e-9 else float("inf")
+        return min(R_open, r_end) if r_end <= r_side else R_open
+    t_c = math.atan2(slot_h, x_end)
+    angs = sorted(set([2 * math.pi * i / 192 for i in range(193)] + [t_c, 2 * math.pi - t_c]))
+    for a0, a1 in zip(angs, angs[1:]):
+        i0, i1 = r_in(a0), r_in(a1)
+        if i0 >= R_open - 1e-6 and i1 >= R_open - 1e-6:
+            continue
+        pts = [(i0 * math.cos(a0), i0 * math.sin(a0)), (R_open * math.cos(a0), R_open * math.sin(a0)),
+               (R_open * math.cos(a1), R_open * math.sin(a1)), (i1 * math.cos(a1), i1 * math.sin(a1))]
+        mesh.quad(*[((x, y, z), uvf(x, y)) for x, y in pts])
+    for sgn in (1, -1):                   # corner lunes: x_end < x < circle, slot_h < |y| < y_top
+        n = 12
+        for i in range(n):
+            ya, yb = slot_h + (y_top - slot_h) * i / n, slot_h + (y_top - slot_h) * (i + 1) / n
+            xa, xb = math.sqrt(max(0.0, R_open ** 2 - ya * ya)), math.sqrt(max(0.0, R_open ** 2 - yb * yb))
+            pts = [(x_end, sgn * ya), (xa, sgn * ya), (xb, sgn * yb), (x_end, sgn * yb)]
             mesh.quad(*[((x, y, z), uvf(x, y)) for x, y in pts])
 
 
 def psp_umd():
-    """Real UMD: a 60mm disc in a ~65 x 64mm shell: a circle a touch larger than
-    the disc that carries on a few degrees below the centre line, then straight
-    sides, big rounded corners and a flat base just under the disc. The disc shows
-    on both sides behind a clear window; the front label has the flat white
-    centre sticker, the back window has the open laser slot cut out of it.
-    Bevelled edges, an inner lip around the window, reflection/shade overlays."""
+    """Real UMD from the trace: a 60mm disc in a shell whose top half is a circle a little
+    larger than the disc, straight sides, rounded corners and a gently curved base. The
+    disc shows on both sides behind a clear window; the front label has the flat white
+    centre sticker, the back window has the laser slot cut out of it and the shell rim
+    recessed around the slot (not through), a round cut and a domed dimple in the base,
+    a cut into the right edge, and the arrow etched into the clear window at the top."""
     R_d = 0.86
-    R_s = R_d + 0.085            # rim around the top and sides
-    base_y = -(R_d + 0.105)
-    T, bev, rc = 0.13, 0.022, 0.15
-    r_stick, r_pin, r_lab = 0.32, 0.028, 0.26   # white centre sticker, disc pin hole (back), label starts under it
-    R_open = R_d + 0.012          # window opening
-    slot_h = 0.30                 # back: laser slot half-height (round inner end about the hub)
-    flare = 0.03                  # the sides lean out a little below the centre line
-    R_b, rc = 3.0, 0.26           # shallow bottom curve (radius, lowest point at base_y) and corner fillets
-    notch_y, notch_h, notch_d = -0.33, 0.07, 0.03   # small notch cut into the right edge
+    R_open = R_d + 0.012                  # window opening
+    K = R_open / TR_WIN                   # trace pt -> model units
+    front = lambda X, Y: ((X - TR_FC) * K, (TR_CY - Y) * K)
+    back = lambda X, Y: ((TR_BC - X) * K, (TR_CY - Y) * K)    # seen from the back: trace-left is model +x
+    T, bev = 0.13, 0.022
+    r_stick, r_pin, r_lab = 0.404, 0.028, 0.26   # white centre sticker (traced), disc pin hole (back), label starts under it
+    depth = 0.090                         # back recesses nearly cut through to the front face (shell is 0.13 thick)
     seg = 72
-    xs = R_s + flare
-    cb = base_y + R_b             # centre of the bottom arc (on the y axis)
-    # fillet of radius rc tangent to the (near vertical) side and the bottom arc
-    fy = cb - math.sqrt((R_b - rc) ** 2 - (xs - rc) ** 2)
-    f_ang = math.degrees(math.atan2(fy - cb, xs - rc))        # bottom-arc angle where the fillet meets it
-    def side_x(y):                # x of the right side at height y (0 at the centre line .. fy)
-        return R_s + flare * y / fy
-    top = [(R_s * math.cos(math.radians(a)), R_s * math.sin(math.radians(a))) for a in range(180, -1, -4)]
-    nx0, nx1 = side_x(notch_y + notch_h / 2), side_x(notch_y - notch_h / 2)
-    right = [(R_s, 0.0), (nx0, notch_y + notch_h / 2), (nx0 - notch_d, notch_y + notch_h / 2),
-             (nx1 - notch_d, notch_y - notch_h / 2), (nx1, notch_y - notch_h / 2), (xs, fy)]
-    outline = (right + arc(xs - rc, fy, rc, 0, f_ang, 6)[1:]
-               + arc(0, cb, R_b, f_ang, -180 - f_ang, 16)[1:]
-               + arc(-xs + rc, fy, rc, -180 - f_ang, -180, 6)[1:] + [(-R_s, 0.0)] + top[1:-1])
-    outline = outline[::-1]
-    inner = offset_outline(outline, bev)
+    outline = clean_poly(trace_polys(TR["shell"], front, steps=14)[0])
     bb = bbox(outline)
     dbb = (-R_d, -R_d, R_d, R_d)
     wbb = (-R_open, -R_open, R_open, R_open)
     zf, zb = T / 2, -T / 2
-    disc_zf, disc_zb = 0.004, -0.004   # the disc sits in the middle of the shell
+    disc_zf, disc_zb = 0.004, -0.004      # the disc sits in the middle of the shell
+    zfloor = zb + depth
+    slot = clean_poly(trace_polys(TR["slot"], back)[0])
+    sbb = bbox(slot)
+    x_end, slot_h = sbb[0], (sbb[3] - sbb[1]) / 2
+    edge_cut = clean_poly(trace_polys(TR["edge_cut"], back)[0])
+    left_cut = clean_poly(trace_polys(TR["left_cut"], back)[0])
+    dome = clean_poly(trace_polys(TR["dome"], back)[0])
+    arrow = [clean_poly(p) for p in trace_polys(TR["arrow"], back)]
+    ebb = bbox(edge_cut)
+    for y in (slot_h, -slot_h):            # outline vertices where the pockets meet the edge
+        outline = split_at_y(outline, y, +1)
+    for y in (ebb[1], ebb[3]):
+        outline = split_at_y(outline, y, -1)
+    inner = offset_outline(outline, bev)
+    def in_notch(mx, my):                  # edge midpoints inside a pocket that reaches the shell edge
+        return (mx > 0 and abs(my) < slot_h - 1e-6) or (mx < 0 and ebb[1] + 1e-6 < my < ebb[3] - 1e-6)
 
     # atlas regions (1024): shell front face 0..0.5 x 0..0.5, shell back 0.5..1 x 0..0.5
-    #   bevel strip rows 0.78..0.82, band rows 0.84..0.94, inner wall rows 0.95..0.98
-    #   disc back 0..0.5 x 0.5..1 (mirrored), centre sticker 0.52..0.74 sq
+    #   bevel strip rows 0.78..0.82, band rows 0.84..0.94, inner wall rows 0.95..0.98,
+    #   etch patch 0.5..0.6 x 0.985..1, disc back 0..0.5 x 0.5..1 (mirrored), centre sticker 0.52..0.74 sq
     A = planar(bb, 0, 0.5, 0, 0.5)
     Ab = planar(bb, 0.5, 0.5, 0, 0.5, mirror=True)
+    wall_uv = (0.55, 0.65, 0.978, 0.952)  # u0, u1, row at the face edge (light), row at the floor (dark)
 
     # --- back (listed first = drawn last when the back faces the camera)
-    m = Mesh(); slot_region(m, slot_h, R_open, zb + 0.001, None, width=0.014); m.write("float_psp_slotrim")
-    m = Mesh(); slot_region(m, slot_h, R_open, zb + 0.002, planar(wbb)); m.write("float_psp_backglass")
+    m = Mesh(); slot_region(m, slot_h, x_end, R_open, zb + 0.001, None, width=0.014); m.write("float_psp_slotrim")
+    m = Mesh()                             # arrow etched into the window: strip between the two traced triangles
+    def by_angle(tri):
+        cx = sum(p[0] for p in tri) / 3
+        cy = sum(p[1] for p in tri) / 3
+        return sorted(tri, key=lambda p: math.atan2(p[1] - cy, p[0] - cx))
+    o, i_ = by_angle(arrow[0]), by_angle(arrow[1])
+    if abs(o[0][1]) < abs(i_[0][1]):
+        o, i_ = i_, o
+    for k in range(3):
+        m.quad(((o[k][0], o[k][1], zb), (0.55, 0.992)), ((o[(k + 1) % 3][0], o[(k + 1) % 3][1], zb), (0.55, 0.992)),
+               ((i_[(k + 1) % 3][0], i_[(k + 1) % 3][1], zb), (0.55, 0.992)), ((i_[k][0], i_[k][1], zb), (0.55, 0.992)))
+    m.write("float_psp_backetch")
+    m = Mesh(); slot_region(m, slot_h, x_end, R_open, zb + 0.002, planar(wbb)); m.write("float_psp_backglass")
+    m = Mesh()                             # the recesses in the back face
+    n = 16                                 # slot: the rim between the window and the shell edge, lowered
+    for k in range(n):
+        ya, yb = -slot_h + 2 * slot_h * k / n, -slot_h + 2 * slot_h * (k + 1) / n
+        pts = [(math.sqrt(R_open ** 2 - ya * ya), ya), (edge_x(outline, ya), ya), (edge_x(outline, yb), yb), (math.sqrt(R_open ** 2 - yb * yb), yb)]
+        m.quad(*[((x, y, zfloor), Ab(x, y)) for x, y in pts])
+    ecx = min(p[0] for p in edge_cut) + 0.006     # the edge cut is open towards the shell edge
+    fan(m, edge_cut, zfloor, Ab)
+    fan(m, left_cut, zfloor, Ab)
+    recess(m, dome, zb, zfloor, Ab, wall_uv, centre_z=zb + depth * 0.8)
+    m.write("float_psp_backcuts")
+    # the recess walls: each goes into the window-wall mesh of the side it faces away from, so the
+    # Lua draws it only when that side is the far one (a wall facing -y belongs to "T", etc.)
+    extra_walls = {"R": [], "T": [], "L": [], "B": []}
+    def wall_quad(p0, p1):
+        return (((p0[0], p0[1], zb), (wall_uv[0], wall_uv[2])), ((p1[0], p1[1], zb), (wall_uv[1], wall_uv[2])),
+                ((p1[0], p1[1], zfloor), (wall_uv[1], wall_uv[3])), ((p0[0], p0[1], zfloor), (wall_uv[0], wall_uv[3])))
+    def wall_side(p0, p1, poly_cx, poly_cy):
+        # the wall's outward normal points away from the pocket centre; it is seen from the opposite side
+        mx, my = (p0[0] + p1[0]) / 2 - poly_cx, (p0[1] + p1[1]) / 2 - poly_cy
+        if abs(mx) > abs(my):
+            return "R" if mx > 0 else "L"
+        return "T" if my > 0 else "B"
+    for sgn in (1, -1):                    # slot long walls, across the rim only
+        xa, xb = math.sqrt(R_open ** 2 - slot_h ** 2), edge_x(outline, sgn * slot_h)
+        extra_walls["B" if sgn > 0 else "T"].append(wall_quad((xa, sgn * slot_h), (xb, sgn * slot_h)))
+    for poly, skip in ((edge_cut, lambda p, q: p[0] < ecx and q[0] < ecx), (left_cut, None)):
+        cx_ = sum(p[0] for p in poly) / len(poly)
+        cy_ = sum(p[1] for p in poly) / len(poly)
+        for i in range(len(poly)):
+            p0, p1 = poly[i], poly[(i + 1) % len(poly)]
+            if skip and skip(p0, p1):
+                continue
+            extra_walls[wall_side(p0, p1, cx_, cy_)].append(wall_quad(p0, p1))
     m = Mesh(); ring_to_outline(m, R_open, inner, zb, Ab, seg * 2); m.write("float_psp_shellback")
-    m = Mesh(); strip(m, inner, zb, outline, zb + bev, 0.5, 0.5, 0.78, 0.82); m.write("float_psp_shellbackbevel")
+    m = Mesh(); strip(m, inner, zb, outline, zb + bev, 0.5, 0.5, 0.78, 0.82, skip=in_notch); m.write("float_psp_shellbackbevel")
     m = Mesh(); ring(m, 0.30, R_d, disc_zb - 0.004, planar(dbb), seg); m.write("float_psp_sheen")
     m = Mesh(); ring(m, r_pin, R_d, disc_zb, planar(dbb, 0, 0.5, 0.5, 0.5, mirror=True), seg); m.write("float_psp_discback")
-    def wall_arcs(name, z_outer, z_inner):
+    def wall_arcs(name, z_outer, z_inner, skip=None, extra=None):
         """Inner wall of the window split into R/T/L/B arcs (from the front)."""
         for tag, a0 in (("R", -45), ("T", 45), ("L", 135), ("B", 225)):
             m = Mesh()
+            for q in (extra or {}).get(tag, []):
+                m.quad(*q)
             n = seg // 4
             for i in range(n):
                 t0 = math.radians(a0 + 90 * i / n)
                 t1 = math.radians(a0 + 90 * (i + 1) / n)
+                if skip and skip(R_open * math.cos((t0 + t1) / 2), R_open * math.sin((t0 + t1) / 2)):
+                    continue
                 p = [(R_open * math.cos(t0), R_open * math.sin(t0), z_outer), (R_open * math.cos(t1), R_open * math.sin(t1), z_outer),
                      ((R_open - 0.004) * math.cos(t1), (R_open - 0.004) * math.sin(t1), z_inner),
                      ((R_open - 0.004) * math.cos(t0), (R_open - 0.004) * math.sin(t0), z_inner)]
                 m.quad(((p[0][0], p[0][1], p[0][2]), (0.55, 0.952)), ((p[1][0], p[1][1], p[1][2]), (0.65, 0.952)),
                        ((p[2][0], p[2][1], p[2][2]), (0.65, 0.978)), ((p[3][0], p[3][1], p[3][2]), (0.55, 0.978)))
             m.write(f"{name}{tag}")
-    wall_arcs("float_psp_wallback", zb, disc_zb - 0.006)
+    wall_arcs("float_psp_wallback", zb, disc_zb - 0.006, skip=lambda x, y: x > 0 and abs(y) < slot_h, extra=extra_walls)   # no wall inside the slot
     # --- side
-    m = Mesh(); band(m, outline, zb + bev, zf - bev, 0.5, 0.5, 0.84, 0.94); m.write("float_psp_band")
+    band_sides("float_psp_band", outline, zb + bev, zf - bev, 0.5, 0.5, 0.84, 0.94,
+               z0f=lambda mx, my: zfloor if in_notch(mx, my) else zb + bev)   # notched where the pockets cut through
     # --- front
     wall_arcs("float_psp_wall", zf, disc_zf + 0.006)
     # glass: plastic tint over the whole window + contact shadow where the lip overhangs the disc
@@ -524,23 +737,15 @@ def psp_umd():
     m = Mesh(); strip(m, inner, zf, outline, zf - bev, 0.5, 0.5, 0.78, 0.82); m.write("float_psp_shellfrontbevel")
     # overlays: clear window over the disc + the whole shell front, planar UV window (yaw-shifted)
     def overlay(g, s, z_add, scale_v=1.0):
+        # only the clear window reflects; the white shell around it is matte plastic
         uv = planar(bb, s, 0.5, 0, scale_v)
         ring(g, 0.02, R_open - 0.004, zf - 0.002 + z_add, uv, seg)  # the window surface, flush with the shell
-        ring_to_outline(g, R_open, inner, zf + 0.003 + z_add, uv, seg * 2)
-        # bevel as a cone-like strip with planar uv
-        for i in range(len(inner)):
-            j = (i + 1) % len(inner)
-            g.quad(((inner[i][0], inner[i][1], zf + 0.003 + z_add), uv(*inner[i])),
-                   ((inner[j][0], inner[j][1], zf + 0.003 + z_add), uv(*inner[j])),
-                   ((outline[j][0], outline[j][1], zf - bev + 0.003 + z_add), uv(*outline[j])),
-                   ((outline[i][0], outline[i][1], zf - bev + 0.003 + z_add), uv(*outline[i])))
     variant_set("float_psp_refl", lambda g, s: overlay(g, s, 0.0))
     variant_set("float_psp_shade", lambda g, s: overlay(g, s, 0.002))
-    # back overlay: the environment reflected in the clear back window (not in the slot) and the shell back
+    # back overlay: the environment reflected in the clear back window only (not in the slot); the rim is matte shell
     def back_overlay(g, s):
         uv = planar(bb, s, 0.5, 0, 1, mirror=True)
-        slot_region(g, slot_h, R_open, zb - 0.002, uv)
-        ring_to_outline(g, R_open, inner, zb - 0.003, uv, seg * 2)
+        slot_region(g, slot_h, x_end, R_open, zb - 0.002, uv)
     variant_set("float_psp_backrefl", back_overlay)
     gloss_set("float_psp", lambda g, s: ring(g, r_lab, R_d, disc_zf + 0.010, planar(dbb, s, 0.5, 0, 1), seg))
 
@@ -549,9 +754,8 @@ def psp_umd():
     TEX = 1024
     img = Image.new("RGBA", (TEX, TEX), (0, 0, 0, 255))
     d = ImageDraw.Draw(img)
-    white, shade = (236, 237, 240), (204, 206, 211)
     mark = (158, 160, 166)   # printed grey of the PSP logo and the controller mark
-    # shell front: soft plastic gradient + faint grain, darker ring at the opening, PSP logo and controller mark
+    # shell front: soft plastic gradient + faint grain, darker ring at the opening, PSP logo and controller mark (traced)
     vgrad(d, (0, 0, TEX // 2, TEX // 2), (242, 243, 245), (220, 221, 226))
     pf = px_of(bb, 0, 0, 0.5, 0.5)
     c = pf(0, 0)
@@ -559,36 +763,37 @@ def psp_umd():
     for rr, col, w in [(R_open + 0.03, (178, 180, 186), 5), (R_open + 0.006, (120, 122, 128), 3)]:
         s_ = rr * scale
         d.ellipse([c[0] - s_, c[1] - s_, c[0] + s_, c[1] + s_], outline=col + (255,), width=w)
-    # PSP wordmark: the geometric logo drawn from strokes (two "P"s around a zig-zag "S")
-    lw = max(2, int(0.006 * scale))
-    def stroke(pts):
-        d.line([pf(*q) for q in pts], fill=mark + (255,), width=lw, joint="curve")
-    wx, wy, gw_, gh_, gap = -0.80, -0.775, 0.085, 0.045, 0.018   # left edge, centre line, glyph size
-    for k in (0, 2):
-        x0 = wx + k * (gw_ + gap)
-        stroke([(x0, wy - gh_), (x0, wy + gh_), (x0 + gw_, wy + gh_), (x0 + gw_, wy), (x0 + 0.015, wy)])
-    x0 = wx + gw_ + gap
-    stroke([(x0 + gw_, wy + gh_), (x0 + gw_ * 0.45, wy + gh_), (x0 + gw_ * 0.45, wy - gh_), (x0, wy - gh_)])
-    # controller mark: pad silhouette, lower right
-    gx, gy = pf(0.63, -0.79)
-    cw, ch = 0.055 * scale, 0.02 * scale
-    d.rounded_rectangle([gx - cw, gy - ch, gx + cw, gy + ch], radius=ch * 0.8, fill=mark + (255,))
-    for sx in (-1, 1):
-        d.ellipse([gx + sx * cw * 0.78 - ch * 1.1, gy - ch * 0.4, gx + sx * cw * 0.78 + ch * 1.1, gy + ch * 2.6], fill=mark + (255,))
-    d.ellipse([gx - ch * 0.5, gy - ch * 1.4, gx + ch * 0.5, gy - ch * 0.6], fill=(234, 235, 238, 255))  # dip between the shoulders
+    trace_fill(img, TR["psp"], front, pf, mark)
+    trace_fill(img, TR["pad"], front, pf, mark)
     d.line([pf(*p) for p in inner] + [pf(*inner[0])], fill=(200, 202, 208, 255), width=2)
-    # shell back
-    vgrad(d, (TEX // 2, 0, TEX, TEX // 2), (226, 227, 231), (206, 207, 212))
+    # shell back: the recess floors a shade darker with a shadow along their walls, the dimple shaded
+    vgrad(d, (TEX // 2, 0, TEX, TEX // 2), (240, 241, 243), (222, 223, 228))   # same white shell as the front
     pb = px_of(bb, 0.5, 0, 0.5, 0.5, mirror=True)
     c = pb(0, 0)
     s_ = (R_open + 0.006) * scale
     d.ellipse([c[0] - s_, c[1] - s_, c[0] + s_, c[1] + s_], outline=(132, 134, 140, 255), width=3)
     d.line([pb(*p) for p in inner] + [pb(*inner[0])], fill=(188, 190, 196, 255), width=2)
-    for x in (-0.56, 0.56):   # two oval notches in the back of the base
-        a_, b_ = pb(x - 0.034, -0.895), pb(x + 0.034, -0.81)
-        box = [min(a_[0], b_[0]), min(a_[1], b_[1]), max(a_[0], b_[0]), max(a_[1], b_[1])]
-        d.ellipse(box, fill=(150, 152, 158, 255))
-        d.ellipse([box[0] + 3, box[1] + 3, box[2] - 3, box[3] - 3], fill=(236, 237, 240, 255))
+    for key in ("slot", "edge_cut", "left_cut"):
+        trace_fill(img, TR[key], back, pb, (198, 199, 204))
+        poly = clean_poly(trace_polys(TR[key], back)[0])
+        pts = [pb(*p) for p in poly] + [pb(*poly[0])]
+        d.line(pts, fill=(118, 120, 126, 255), width=6)     # shadow under the wall
+        d.line([(x, y + 3) for x, y in pts], fill=(168, 170, 176, 255), width=3)
+    dpts = [pb(*p) for p in dome]
+    dxs, dys = [p[0] for p in dpts], [p[1] for p in dpts]
+    dbox = (int(min(dxs)), int(min(dys)), int(max(dxs)) + 1, int(max(dys)) + 1)
+    dimple = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    dd = ImageDraw.Draw(dimple)
+    for k in range(dbox[1], dbox[3]):      # concave dimple: shadowed at the top, lit at the bottom
+        t = (k - dbox[1]) / max(1, dbox[3] - dbox[1] - 1)
+        v = int(150 + 80 * t)
+        dd.line([(dbox[0], k), (dbox[2], k)], fill=(v, v, v + 4, 255))
+    dome_mask = Image.new("L", img.size, 0)
+    ImageDraw.Draw(dome_mask).polygon(dpts, fill=255)
+    img.paste(dimple, (0, 0), dome_mask)
+    d.ellipse([dbox[0], dbox[1], dbox[2], dbox[3]], outline=(140, 142, 148, 255), width=2)
+    # etch patch: pale, half transparent (the arrow cut into the clear window)
+    d.rectangle([int(0.5 * TEX), int(0.985 * TEX), int(0.6 * TEX), TEX], fill=(238, 242, 250, 150))
     # bevel strips (front 0..0.5, back 0.5..1): bright top edge rolling to the side tone
     for r in range(int(0.78 * TEX) - 2, int(0.82 * TEX) + 3):
         t = min(1.0, max(0.0, (r - 0.78 * TEX) / (0.04 * TEX)))
@@ -608,14 +813,13 @@ def psp_umd():
     for rr, col in [(0.34, (90, 92, 98)), (0.28, (160, 164, 170)), (0.12, (60, 60, 64))]:
         s_ = rr * (TEX * 0.5) / (2 * R_d)
         d.ellipse([c[0] - s_, c[1] - s_, c[0] + s_, c[1] + s_], outline=col + (255,), width=3)
-    # centre sticker (0.52..0.74): flat white, faint edge, UMD wordmark, pin hole
+    # centre sticker (0.52..0.74): flat white, faint edge, traced UMD wordmark and small print
     hx0, hy0, hx1, hy1 = int(0.52 * TEX), int(0.52 * TEX), int(0.74 * TEX), int(0.74 * TEX)
     d.ellipse([hx0, hy0, hx1, hy1], fill=(250, 250, 252, 255))
     d.ellipse([hx0 + 3, hy0 + 3, hx1 - 3, hy1 - 3], outline=(214, 216, 222, 255), width=2)
-    hc = ((hx0 + hx1) / 2, (hy0 + hy1) / 2)
-    hs = (hx1 - hx0) / 2
-    d.text((hc[0], hc[1] - hs * 0.10), "UMD", fill=(116, 110, 206, 255), font=font(int(hs * 0.62), weight="regular"), anchor="mm")
-    d.text((hc[0], hc[1] + hs * 0.33), "UNIVERSAL MEDIA DISC", fill=(84, 86, 104, 255), font=font(int(hs * 0.115), weight="regular"), anchor="mm")
+    ps = px_of((-r_stick, -r_stick, r_stick, r_stick), 0.52, 0.52, 0.22, 0.22)
+    trace_fill(img, TR["umd"], front, ps, (39, 117, 185))
+    trace_fill(img, TR["small"], front, ps, (100, 102, 108))
     # plastic grain on the shell faces
     noise = Image.effect_noise((TEX // 2, TEX // 2), 6).convert("L")
     grain = Image.merge("RGBA", (noise, noise, noise, Image.new("L", noise.size, 22)))

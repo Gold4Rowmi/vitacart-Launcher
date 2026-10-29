@@ -1,0 +1,361 @@
+<title>Float Media Viewport</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one dark inspection bench. The 960x544 Vita frame sits on top, controls stack under it. */
+:root {
+  --bg: #15171c; --panel: #1e2128; --panel-2: #262a33; --line: #343945;
+  --fg: #e6e8ee; --fg-dim: #9aa1b1; --accent: #5aa9ff; --accent-fg: #0b1420;
+  --ok: #3ccf8e; --bad: #ff6b6b;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.4 var(--sans);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 10px 24px; box-sizing: border-box; }
+.top { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin-bottom: 10px; }
+h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: 0.01em; }
+.seg { display: inline-flex; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { background: none; border: 0; color: var(--fg-dim); padding: 7px 12px; font: 500 13px var(--sans); cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+.stage { position: relative; width: 100%; aspect-ratio: 960 / 544; max-width: 100%; border-radius: 10px; overflow: hidden;
+  background: #000 center / cover no-repeat; border: 1px solid var(--line); touch-action: none; user-select: none; -webkit-user-select: none; }
+.stage canvas { display: block; width: 100% !important; height: 100% !important; }
+.hud { position: absolute; left: 8px; top: 8px; display: flex; gap: 6px; flex-wrap: wrap; pointer-events: none; }
+.hud span { background: rgba(10,12,16,0.72); color: var(--fg); font: 11px/1 var(--mono); padding: 5px 7px; border-radius: 6px; font-variant-numeric: tabular-nums; }
+.hud .ok { color: var(--ok); } .hud .bad { color: var(--bad); }
+.hint { position: absolute; right: 8px; bottom: 8px; color: rgba(230,232,238,0.7); font: 11px var(--sans); pointer-events: none; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+.row label.sl { display: flex; align-items: center; gap: 8px; color: var(--fg-dim); font-size: 12px; flex: 1 1 180px; min-width: 0; }
+input[type=range] { flex: 1; min-width: 80px; accent-color: var(--accent); }
+.btn { background: var(--panel); border: 1px solid var(--line); color: var(--fg); border-radius: 8px; padding: 7px 11px; font: 500 13px var(--sans); cursor: pointer; }
+.btn:active { background: var(--panel-2); }
+.btn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.btn:focus-visible, .seg button:focus-visible, .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+details { margin-top: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+summary { padding: 9px 12px; cursor: pointer; font-weight: 500; color: var(--fg); }
+summary small { color: var(--fg-dim); font-weight: 400; margin-left: 6px; }
+.body { padding: 4px 12px 12px; display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { background: var(--panel-2); border: 1px solid var(--line); color: var(--fg-dim); border-radius: 999px; padding: 5px 10px; font: 12px var(--sans); cursor: pointer; }
+.chip[aria-pressed="true"] { color: var(--fg); border-color: var(--accent); }
+.chip img { height: 28px; vertical-align: middle; border-radius: 3px; margin-right: 6px; }
+.layers { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px 10px; width: 100%; }
+.layers label { display: flex; align-items: center; gap: 7px; font: 12px var(--mono); color: var(--fg); padding: 4px 2px; min-width: 0; }
+.layers label.off { color: var(--fg-dim); text-decoration: line-through; }
+.layers input { accent-color: var(--accent); margin: 0; }
+.layers .cnt { color: var(--fg-dim); margin-left: auto; font-variant-numeric: tabular-nums; }
+.note { color: var(--fg-dim); font-size: 12px; margin-top: 10px; }
+.note code { font: 11px var(--mono); background: var(--panel); padding: 1px 5px; border-radius: 4px; }
+#err { color: var(--bad); font: 12px var(--mono); white-space: pre-wrap; margin-top: 8px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="top">
+  <h1>Float Media Viewport</h1>
+  <div class="seg" id="kinds" role="group" aria-label="Media type">
+    <button data-kind="vita" aria-pressed="true">Vita card</button>
+    <button data-kind="psp" aria-pressed="false">PSP UMD</button>
+    <button data-kind="psx" aria-pressed="false">PS1 disc</button>
+  </div>
+  <div class="seg" id="sets" role="group" aria-label="Model set" hidden></div>
+</div>
+
+<div class="stage" id="stage">
+  <div class="hud"><span id="hud-pose">yaw 0 pitch 0</span><span id="hud-draws">0 draws</span><span id="hud-check">Lua check…</span></div>
+  <div class="hint">drag: turn · pinch/wheel: zoom · double-tap: reset</div>
+</div>
+
+<div class="row">
+  <button class="btn" id="b-front">Front</button>
+  <button class="btn" id="b-back">Back</button>
+  <button class="btn" id="b-edge">Edge</button>
+  <button class="btn" id="b-spin" aria-pressed="false">Spin</button>
+  <button class="btn" id="b-idle" aria-pressed="false">Float</button>
+  <button class="btn" id="b-gloss" aria-pressed="true">Gloss</button>
+  <button class="btn" id="b-wire" aria-pressed="false">Wire</button>
+  <button class="btn" id="b-disc" aria-pressed="false" hidden>Disc label</button>
+  <button class="btn" id="b-ab" hidden>Hold: compare</button>
+</div>
+<div class="row">
+  <label class="sl">zoom <input type="range" id="zoom" min="1" max="6" step="0.05" value="1"><span id="zoom-v" style="font:12px var(--mono)">1.00x</span></label>
+  <label class="sl">pitch <input type="range" id="pitch" min="-89" max="89" step="1" value="0"></label>
+  <label class="sl">yaw <input type="range" id="yaw" min="-180" max="180" step="1" value="0"></label>
+</div>
+
+<details open>
+  <summary>Layers <small id="layers-sub"></small></summary>
+  <div class="body">
+    <div class="row" style="margin:0;width:100%"><button class="btn" id="l-all">All</button><button class="btn" id="l-none">None</button>
+      <span class="note" style="margin:0">Draw order is the Lua's: listed back to front, reversed when the back faces you.</span></div>
+    <div class="layers" id="layers"></div>
+  </div>
+</details>
+<details>
+  <summary>Cover art &amp; background</summary>
+  <div class="body" id="art"></div>
+  <div class="body" id="bgs" style="padding-top:0"></div>
+</details>
+<p class="note">Same camera as the Vita at zoom 1 (45° lens, 960×544, item at the selected slot). Unlit, no depth test, painter's order, alpha blended, like lpp-vita's <code>Render.drawModel</code>. Rebuild with <code>viewport/build.py</code> after <code>gen.py</code>.</p>
+<div id="err"></div>
+
+<script type="importmap">{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.min.js" } }</script>
+<script type="module">
+import * as THREE from 'three';
+const $ = id => document.getElementById(id);
+const rad = d => d * Math.PI / 180, deg = r => r * 180 / Math.PI;
+const mod = (a, b) => ((a % b) + b) % b;
+const clamp = (v, lo, hi) => v < lo ? lo : v > hi ? hi : v;
+const errEl = $('err');
+const fail = e => { errEl.textContent += (e && e.stack || e) + '\n'; console.error(e); };
+window.addEventListener('error', e => fail(e.error || e.message));
+window.addEventListener('unhandledrejection', e => fail(e.reason));
+
+const getText = url => new Promise((res, rej) => { const x = new XMLHttpRequest(); x.open('GET', url); x.onload = () => (x.status === 200 || x.status === 0) && x.responseText ? res(x.responseText) : rej(new Error('missing ' + url)); x.onerror = () => rej(new Error('failed ' + url)); x.send(); });
+const scene = JSON.parse(await getText('scene.json'));
+const STEPS = scene.steps;
+const KINDS = Object.keys(scene.layers);
+const FLOOR = -0.6, PZ = -4.7, FY = 0.22;      // selected slot in RetroFlow's default view
+
+// ---- the Lua FLOAT.draw_layers, ported ---------------------------------------------------
+function sheenAngle(rx, ry) { return deg(Math.atan2(Math.sin(rad(rx)), Math.sin(rad(ry)) + 1e-6)) + ry * 0.6; }
+function drawList(kind, disc, rx, ry, rz, withGloss) {
+  const m = scene.layers[kind], n = m.length, out = [];
+  const facing = Math.cos(rad(ry)) * Math.cos(rad(rx));
+  const labelLayer = m.find(L => L.name === 'label');
+  const labelObj = (disc && scene.labeldisc[kind]) || labelLayer.obj;
+  const last = [];
+  for (let i = 1; i <= n; i++) {
+    const L = m[facing >= 0 ? i - 1 : n - i];
+    if (L.band) {
+      const sy = Math.sin(rad(ry)), sx = Math.sin(rad(rx));
+      const near = (L.side === 'R' && sy < -0.03) || (L.side === 'L' && sy > 0.03) || (L.side === 'B' && sx < -0.03) || (L.side === 'T' && sx > 0.03);
+      if (near) last.push({ obj: L.obj, tex: L.tex, rz, layer: L.name }); else out.push({ obj: L.obj, tex: L.tex, rz, layer: L.name });
+    } else if (L.set) {
+      const vis = L.back ? facing < -0.15 : facing > 0.15;
+      if (vis && (withGloss || L.name !== 'gloss')) {
+        const yaw = L.back ? mod(ry, 360) - 180 : mod(ry + 180, 360) - 180;
+        const span = L.name === 'gloss' ? 26 : 55;
+        const g = Math.floor(clamp((yaw / span + 1) / 2, 0, 1) * (STEPS - 1) + 0.5);
+        out.push({ obj: L.set[g], tex: L.tex, rz, layer: L.name });
+      }
+    } else if (L.side) {
+      const sy = Math.sin(rad(ry)), sx = Math.sin(rad(rx));
+      const far = (L.side === 'R' && sy > 0.03) || (L.side === 'L' && sy < -0.03) || (L.side === 'B' && sx > 0.03) || (L.side === 'T' && sx < -0.03);
+      if (far && ((facing >= 0) !== L.back)) out.push({ obj: L.obj, tex: L.tex, rz, layer: L.name });
+    } else if (L.name === 'sheen') {
+      if (facing < 0.35) out.push({ obj: L.obj, tex: L.tex, rz: rz + sheenAngle(rx, ry), layer: 'sheen' });
+    } else if (L.name === 'label') {
+      out.push({ obj: labelObj, tex: 'ART', rz, layer: 'label' });
+    } else if (L.backOnly !== undefined) {
+      if (facing < L.backOnly) out.push({ obj: L.obj, tex: L.tex, rz, layer: L.name });
+    } else out.push({ obj: L.obj, tex: L.tex, rz, layer: L.name });
+  }
+  return out.concat(last);
+}
+// self-check against the draw lists recorded from the real Lua at build time
+function luaCheck() {
+  let bad = 0;
+  for (const r of scene.ref) {
+    const mine = drawList(r.kind, r.disc, r.rx, r.ry, 3.0, true);
+    const ok = mine.length === r.draws.length && mine.every((d, i) => d.obj === r.draws[i][0]
+      && (d.tex === 'ART' ? r.draws[i][1] === 'ART' : r.draws[i][1].endsWith(d.tex)) && Math.abs(d.rz - r.draws[i][2]) < 0.002);
+    if (!ok) { bad++; if (bad < 4) console.warn('Lua mismatch', r, mine); }
+  }
+  const el = $('hud-check');
+  el.textContent = bad ? `Lua check: ${bad}/${scene.ref.length} poses differ` : `Lua check OK (${scene.ref.length} poses)`;
+  el.className = bad ? 'bad' : 'ok';
+}
+
+// ---- assets ----------------------------------------------------------------------------------
+const texLoader = new THREE.TextureLoader();
+const texCache = new Map();
+function texture(url) {
+  if (!texCache.has(url)) {
+    const t = texLoader.load(url, undefined, undefined, () => fail('texture failed: ' + url));
+    t.colorSpace = THREE.SRGBColorSpace; t.generateMipmaps = false;
+    t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter;
+    t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+    texCache.set(url, t);
+  }
+  return texCache.get(url);
+}
+function parseObj(text) {
+  const v = [], vt = [], pos = [], uv = [];
+  for (const line of text.split('\n')) {
+    const p = line.trim().split(/\s+/);
+    if (p[0] === 'v') v.push([+p[1], +p[2], +p[3]]);
+    else if (p[0] === 'vt') vt.push([+p[1], +p[2]]);
+    else if (p[0] === 'f') {
+      const idx = p.slice(1).map(q => q.split('/').map(s => parseInt(s, 10)));
+      for (let i = 1; i + 1 < idx.length; i++) for (const k of [idx[0], idx[i], idx[i + 1]]) {
+        pos.push(...v[k[0] - 1]); const t = vt[(k[1] || k[0]) - 1] || [0, 0]; uv.push(t[0], t[1]);
+      }
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  return g;
+}
+const geoCache = new Map();
+async function geometry(url) {
+  if (!geoCache.has(url)) geoCache.set(url, getText(url).then(parseObj));
+  return geoCache.get(url);
+}
+const meshCache = new Map();   // key set|obj -> Mesh (material map set per draw), null when the set lacks that file
+const missing = new Set();
+async function mesh(set, obj) {
+  const key = set + '|' + obj;
+  if (!meshCache.has(key)) {
+    let geo;
+    try { geo = await geometry(`sets/${set}/${obj}.txt`); } catch (e) { meshCache.set(key, null); missing.add(key); return null; }
+    const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+      transparent: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }));
+    m.visible = false; m.frustumCulled = false; three.add(m); meshCache.set(key, m);
+  }
+  return meshCache.get(key);
+}
+
+// ---- state ---------------------------------------------------------------------------------
+const S = { kind: 'vita', set: scene.sets[0], rx: 0, ry: 0, zoom: 1, gloss: true, wire: false, spin: false, idle: false, disc: false,
+  art: { vita: scene.art.vita[0], psp: scene.art.psp[0], psx: scene.art.psx[0] }, bg: scene.art.bg[0],
+  hidden: { vita: new Set(), psp: new Set(), psx: new Set() } };
+try { Object.assign(S, JSON.parse(localStorage.getItem('fmv') || '{}'), { hidden: S.hidden }); } catch (e) {}
+if (!scene.sets.includes(S.set)) S.set = scene.sets[0];
+const hashKind = location.hash.replace('#', ''); if (KINDS.includes(hashKind)) S.kind = hashKind;   // #vita #psp #psx open that media
+const save = () => { try { localStorage.setItem('fmv', JSON.stringify({ kind: S.kind, set: S.set, rx: S.rx, ry: S.ry, zoom: S.zoom, gloss: S.gloss, art: S.art, bg: S.bg })); } catch (e) {} };
+
+// ---- renderer ----------------------------------------------------------------------------
+const stage = $('stage');
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, premultipliedAlpha: false });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.setClearColor(0x000000, 0);
+stage.appendChild(renderer.domElement);
+const three = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, 960 / 544, 0.05, 100);
+function resize() { const w = stage.clientWidth, h = stage.clientHeight; renderer.setSize(w, h, false); }
+new ResizeObserver(resize).observe(stage); resize();
+
+let compareSet = null, t0 = performance.now(), lastList = [];
+async function frame() {
+  const t = (performance.now() - t0) / 1000;
+  const set = compareSet || S.set, kind = S.kind;
+  let rx = S.rx, ry = S.ry, rz = 0, fy = FY;
+  if (S.spin) { S.ry = mod(S.ry + 0.6 + 180, 360) - 180; ry = S.ry; $('yaw').value = Math.round(S.ry); }
+  if (S.idle) {  // FLOAT.offsets for the selected item (w = 1)
+    fy = 0.22 + Math.sin(t * 1.7) * 0.045; rx += Math.sin(t * 1.1) * 1.5; ry += Math.sin(t * 0.8) * 6; rz = Math.sin(t * 1.3) * 1.2;
+  }
+  const cy = FLOOR + scene.half[kind] + scene.yoff[kind] + fy;
+  const list = drawList(kind, S.disc && !!scene.labeldisc[kind], rx, ry, rz, S.gloss).filter(d => !S.hidden[kind].has(d.layer));
+  const wanted = new Set();
+  const meshes = await Promise.all(list.map(d => mesh(set, d.obj)));
+  const sh = await mesh(set, scene.shadow.obj);
+  for (const m of meshCache.values()) if (m) m.visible = false;
+  if (sh) {
+    sh.material.map = texture(`sets/${set}/${scene.shadow.tex}`); sh.material.needsUpdate = true;
+    sh.position.set(0, FLOOR + 0.003, PZ); sh.rotation.set(0, rad(ry), 0); sh.renderOrder = 0; sh.visible = !S.hidden[kind].has('shadow');
+  }
+  list.forEach((d, i) => {
+    const m = meshes[i];
+    if (!m) return;
+    const map = d.tex === 'ART' ? texture(`art/${S.art[kind]}`) : texture(`sets/${set}/${d.tex}`);
+    if (m.material.map !== map) { m.material.map = map; m.material.needsUpdate = true; }
+    m.material.wireframe = S.wire;
+    m.position.set(0, cy, PZ); m.rotation.set(rad(rx), rad(ry), rad(d.rz)); m.renderOrder = i + 1; m.visible = true;
+  });
+  // camera: Vita framing at zoom 1, dollies toward the item as you zoom
+  const z = S.zoom, ty = cy * clamp((z - 1) / 0.5, 0, 1); camera.position.set(0, ty, PZ + (-PZ) / z); camera.lookAt(0, ty, PZ);
+  camera.updateProjectionMatrix();
+  renderer.render(three, camera);
+  lastList = list;
+  $('hud-pose').textContent = `yaw ${Math.round(mod(ry + 180, 360) - 180)}° pitch ${Math.round(rx)}°`;
+  const miss = list.filter(d => meshCache.get(set + '|' + d.obj) === null).length;
+  $('hud-draws').textContent = `${list.length - miss} draws · ${set}${compareSet ? ' (compare)' : ''}${miss ? ` · ${miss} not in this set` : ''}`;
+  requestAnimationFrame(() => frame().catch(fail));
+}
+
+// ---- UI --------------------------------------------------------------------------------------
+function setKind(k) {
+  S.kind = k; save();
+  for (const b of $('kinds').children) b.setAttribute('aria-pressed', String(b.dataset.kind === k));
+  $('b-disc').hidden = !scene.labeldisc[k];
+  buildLayers(); buildArt();
+}
+function buildLayers() {
+  const box = $('layers'); box.innerHTML = '';
+  const names = ['shadow', ...scene.layers[S.kind].map(L => L.name)];
+  $('layers-sub').textContent = `${S.kind}: ${names.length - 1} layers`;
+  for (const name of names) {
+    const L = scene.layers[S.kind].find(x => x.name === name);
+    const lab = document.createElement('label'); const cb = document.createElement('input'); cb.type = 'checkbox';
+    cb.id = `layer-${S.kind}-${name}`; cb.checked = !S.hidden[S.kind].has(name);
+    cb.onchange = () => { cb.checked ? S.hidden[S.kind].delete(name) : S.hidden[S.kind].add(name); lab.classList.toggle('off', !cb.checked); };
+    lab.classList.toggle('off', !cb.checked);
+    const txt = document.createElement('span'); txt.textContent = name;
+    const cnt = document.createElement('span'); cnt.className = 'cnt';
+    cnt.textContent = L ? (L.set ? `×${STEPS} ${L.tex.replace('float_', '').replace('.png', '')}` : (L.side ? `wall ${L.side}` : L.tex === 'noimg' ? 'cover art' : L.tex.replace('float_', '').replace('.png', ''))) : '';
+    lab.append(cb, txt, cnt); box.appendChild(lab);
+  }
+}
+$('l-all').onclick = () => { S.hidden[S.kind].clear(); buildLayers(); };
+$('l-none').onclick = () => { S.hidden[S.kind] = new Set(['shadow', ...scene.layers[S.kind].map(L => L.name)]); buildLayers(); };
+function buildArt() {
+  const box = $('art'); box.innerHTML = '';
+  for (const a of scene.art[S.kind]) {
+    const b = document.createElement('button'); b.className = 'chip'; b.setAttribute('aria-pressed', String(S.art[S.kind] === a));
+    const img = document.createElement('img'); img.src = `art/${a}`; img.alt = ''; b.append(img, a.replace('.png', ''));
+    b.onclick = () => { S.art[S.kind] = a; save(); buildArt(); }; box.appendChild(b);
+  }
+  const bgs = $('bgs'); bgs.innerHTML = '';
+  for (const g of scene.art.bg) {
+    const b = document.createElement('button'); b.className = 'chip'; b.textContent = g.replace(/^bg_/, '').replace(/\.\w+$/, '');
+    b.setAttribute('aria-pressed', String(S.bg === g));
+    b.onclick = () => { S.bg = g; save(); applyBg(); buildArt(); }; bgs.appendChild(b);
+  }
+}
+function applyBg() { stage.style.backgroundImage = `url("art/${S.bg}")`; }
+for (const b of $('kinds').children) b.onclick = () => setKind(b.dataset.kind);
+if (scene.sets.length > 1) {
+  const box = $('sets'); box.hidden = false;
+  for (const s of scene.sets) { const b = document.createElement('button'); b.textContent = s; b.setAttribute('aria-pressed', String(S.set === s));
+    b.onclick = () => { S.set = s; save(); for (const x of box.children) x.setAttribute('aria-pressed', String(x.textContent === s)); }; box.appendChild(b); }
+  const ab = $('b-ab'); ab.hidden = false;
+  const other = () => scene.sets[(scene.sets.indexOf(S.set) + 1) % scene.sets.length];
+  ab.textContent = `Hold: show ${other()}`;
+  const down = e => { e.preventDefault(); compareSet = other(); ab.setAttribute('aria-pressed', 'true'); };
+  const up = () => { compareSet = null; ab.setAttribute('aria-pressed', 'false'); ab.textContent = `Hold: show ${other()}`; };
+  ab.onpointerdown = down; ab.onpointerup = ab.onpointercancel = ab.onpointerleave = up;
+}
+const toggle = (id, key) => { const b = $(id); b.setAttribute('aria-pressed', String(S[key])); b.onclick = () => { S[key] = !S[key]; b.setAttribute('aria-pressed', String(S[key])); save(); }; };
+toggle('b-spin', 'spin'); toggle('b-idle', 'idle'); toggle('b-gloss', 'gloss'); toggle('b-wire', 'wire'); toggle('b-disc', 'disc');
+const pose = (rx, ry) => { S.rx = rx; S.ry = ry; S.spin = false; $('b-spin').setAttribute('aria-pressed', 'false'); $('pitch').value = rx; $('yaw').value = ry; save(); };
+$('b-front').onclick = () => pose(0, 0); $('b-back').onclick = () => pose(0, 180); $('b-edge').onclick = () => pose(0, 80);
+$('zoom').oninput = e => { S.zoom = +e.target.value; $('zoom-v').textContent = S.zoom.toFixed(2) + 'x'; save(); };
+$('pitch').oninput = e => { S.rx = +e.target.value; save(); };
+$('yaw').oninput = e => { S.ry = +e.target.value; S.spin = false; $('b-spin').setAttribute('aria-pressed', 'false'); save(); };
+
+// gestures: one finger turns (Lua's DRAG_YAW / DRAG_PITCH per screen pixel of the 960-wide frame), two fingers zoom
+const ptrs = new Map(); let pinch0 = 0, zoom0 = 1, lastTap = 0;
+stage.addEventListener('pointerdown', e => { ptrs.set(e.pointerId, [e.clientX, e.clientY]); stage.setPointerCapture(e.pointerId);
+  if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch0 = Math.hypot(a[0] - b[0], a[1] - b[1]); zoom0 = S.zoom; }
+  const now = performance.now(); if (ptrs.size === 1 && now - lastTap < 300) { pose(0, 0); S.zoom = 1; $('zoom').value = 1; $('zoom-v').textContent = '1.00x'; } lastTap = now; });
+stage.addEventListener('pointermove', e => { if (!ptrs.has(e.pointerId)) return; const prev = ptrs.get(e.pointerId); ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+  const scale = 960 / stage.clientWidth;
+  if (ptrs.size === 1) { S.ry = mod(S.ry + (e.clientX - prev[0]) * scale * 0.45 + 180, 360) - 180; S.rx = clamp(S.rx + (e.clientY - prev[1]) * scale * 0.35, -89, 89);
+    $('yaw').value = Math.round(S.ry); $('pitch').value = Math.round(S.rx); S.spin = false; $('b-spin').setAttribute('aria-pressed', 'false'); }
+  else if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; const d = Math.hypot(a[0] - b[0], a[1] - b[1]); S.zoom = clamp(zoom0 * d / pinch0, 1, 6); $('zoom').value = S.zoom; $('zoom-v').textContent = S.zoom.toFixed(2) + 'x'; } });
+const lift = e => { ptrs.delete(e.pointerId); save(); };
+stage.addEventListener('pointerup', lift); stage.addEventListener('pointercancel', lift);
+stage.addEventListener('wheel', e => { e.preventDefault(); S.zoom = clamp(S.zoom * (e.deltaY < 0 ? 1.1 : 0.9), 1, 6); $('zoom').value = S.zoom; $('zoom-v').textContent = S.zoom.toFixed(2) + 'x'; }, { passive: false });
+
+// hot republish: keep the pose
+window.claude?.hot?.snapshot?.(() => ({ rx: S.rx, ry: S.ry, zoom: S.zoom, kind: S.kind }));
+const hot = window.claude?.hot?.data; if (hot) Object.assign(S, hot);
+
+$('zoom').value = S.zoom; $('zoom-v').textContent = S.zoom.toFixed(2) + 'x'; $('pitch').value = S.rx; $('yaw').value = S.ry;
+setKind(S.kind); applyBg(); luaCheck();
+frame().catch(fail);
+</script>

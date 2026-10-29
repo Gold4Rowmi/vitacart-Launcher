@@ -13893,14 +13893,15 @@ FLOAT = {
     FLICK_MAX = 900,       -- deg/s carried into the spring on release
     GRAB_W = 170, GRAB_Y0 = 40, GRAB_Y1 = 440,  -- touch area of the selected item
     GLOSS_STEPS = 9,
-    HALF = { vita = 0.925, psp = 0.950, psx = 0.925 },
-    YOFF = { vita = 0, psp = 0.015, psx = 0 },
+    BACK_ONLY = { backcuts = 0.5, backetch = -0.05 },    -- pocket floors also show from the side   -- layer -> facing threshold (see draw_layers)
+    HALF = { vita = 0.925, psp = 0.956, psx = 0.925 },
+    YOFF = { vita = 0, psp = 0.018, psx = 0 },
     LAYERS = {
         vita = { "back", "band", "front", "label", "bands", "gloss" },
         psx = { "sheen", "back", "band", "front", "label", "gloss" },
         -- "back..." overlays belong to the back face: drawn only when it faces the camera
-        psp = { "backrefl", "slotrim", "backglass", "shellback", "shellbackbevel", "sheen", "discback",
-                "wallbackR", "wallbackT", "wallbackL", "wallbackB", "band",
+        psp = { "backrefl", "slotrim", "backetch", "backglass", "backcuts", "shellback", "shellbackbevel",
+                "wallbackR", "wallbackT", "wallbackL", "wallbackB", "sheen", "discback", "bandR", "bandT", "bandL", "bandB",
                 "label", "hub", "glass", "wallR", "wallT", "wallL", "wallB",
                 "shellfront", "shellfrontbevel", "shade", "refl", "gloss" },
     },
@@ -13958,6 +13959,11 @@ function FLOAT.load_assets()
                 table.insert(m.layers, { name = name, set = set, back = vname ~= name })
             elseif name == "glass" or name == "backglass" then
                 table.insert(m.layers, { name = name, obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_" .. name .. ".obj", FLOAT.glass_img) })
+            elseif name:match("^band%u$") then
+                -- side wall in four pieces: the piece nearest the camera is drawn last so the
+                -- disc inside never shows through the edge (no depth test), far pieces in place
+                table.insert(m.layers, { name = name, band = true, side = name:sub(-1),
+                    obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_" .. name .. ".obj", m.body_img) })
             elseif name:match("^wall") then
                 -- inner wall of the window, one arc per side; only the far side is ever drawn
                 table.insert(m.layers, { name = name, side = name:sub(-1), back = name:find("back") ~= nil,
@@ -14138,9 +14144,15 @@ function FLOAT.draw_layers(kind, icon, disc_label, px, cy, pz, rx, ry, rz, with_
     local facing = math.cos(math.rad(ry)) * math.cos(math.rad(rx))
     local n = #m.layers
     local label = (disc_label and m.labeldisc) or m.label
+    local last = {}
     for i = 1, n do
         local L = m.layers[facing >= 0 and i or (n + 1 - i)]
-        if L.set then
+        if L.band then
+            local sy, sx = math.sin(math.rad(ry)), math.sin(math.rad(rx))
+            local near = (L.side == "R" and sy < -0.03) or (L.side == "L" and sy > 0.03)
+                      or (L.side == "B" and sx < -0.03) or (L.side == "T" and sx > 0.03)
+            if near then table.insert(last, L.obj) else Render.drawModel(L.obj, px, cy, pz, rx, ry, rz) end
+        elseif L.set then
             -- view-dependent overlays: pick the mesh whose uv window matches the yaw
             -- (measured from whichever face the overlay belongs to)
             local vis = L.back and facing < -0.15 or (not L.back and facing > 0.15)
@@ -14153,8 +14165,8 @@ function FLOAT.draw_layers(kind, icon, disc_label, px, cy, pz, rx, ry, rz, with_
         elseif L.side then
             -- +yaw moves the right side away from the viewer, +pitch moves the top nearer;
             -- a wall arc is visible only on the far side, and only from the face it belongs to
+            -- (the back walls use the same model-space sides, so no sign flip for them)
             local sy, sx = math.sin(math.rad(ry)), math.sin(math.rad(rx))
-            if L.back then sy, sx = -sy, -sx end
             local far = (L.side == "R" and sy > 0.03) or (L.side == "L" and sy < -0.03)
                      or (L.side == "B" and sx > 0.03) or (L.side == "T" and sx < -0.03)
             if far and ((facing >= 0) ~= L.back) then
@@ -14168,10 +14180,15 @@ function FLOAT.draw_layers(kind, icon, disc_label, px, cy, pz, rx, ry, rz, with_
         elseif L.name == "label" then
             Render.useTexture(label, icon)
             Render.drawModel(label, px, cy, pz, rx, ry, rz)
+        elseif FLOAT.BACK_ONLY[L.name] then
+            -- geometry inside the shell (recess floors and walls, the etched arrow): with no depth
+            -- test it would paint over the sides, so it is drawn only when the back clearly faces us
+            if facing < FLOAT.BACK_ONLY[L.name] then Render.drawModel(L.obj, px, cy, pz, rx, ry, rz) end
         else
             Render.drawModel(L.obj, px, cy, pz, rx, ry, rz)
         end
     end
+    for _, obj in ipairs(last) do Render.drawModel(obj, px, cy, pz, rx, ry, rz) end
 end
 
 function FLOAT.draw_media(kind, icon, px, py, pz, fy, rx, ry, rz, side, cur_p)
