@@ -13872,8 +13872,9 @@ end
 --    back); let go and it springs back
 --  * PSP: if "<cover name>_umd.png" exists next to the cover it is used as a
 --    real round disc label (see fork/floating-media/umd_labels.py)
--- Each piece of media is a list of layers drawn back-to-front; the Vita has no
--- depth test, so the order is reversed when the item faces away.
+-- Each piece of media is a list of layers drawn back-to-front; the order is reversed
+-- when the item faces away. (vita2d leaves GXM's depth test on, so geometry must be
+-- real: pockets are holes in the faces with floors and walls.)
 -- ==========================================================================
 FLOAT = {
     -- Tuning (flip the INVERT flags if something feels backwards on hardware)

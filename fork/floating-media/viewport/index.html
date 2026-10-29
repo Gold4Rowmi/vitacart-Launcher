@@ -97,7 +97,7 @@ summary small { color: var(--fg-dim); font-weight: 400; margin-left: 6px; }
   <div class="body" id="art"></div>
   <div class="body" id="bgs" style="padding-top:0"></div>
 </details>
-<p class="note">Same camera as the Vita at zoom 1 (45° lens, 960×544, item at the selected slot). Unlit, no depth test, painter's order, alpha blended, like lpp-vita's <code>Render.drawModel</code>. Rebuild with <code>viewport/build.py</code> after <code>gen.py</code>.</p>
+<p class="note">Same camera as the Vita at zoom 1 (45° lens, 960×544, item at the selected slot). Unlit, depth-tested (as vita2d leaves GXM), alpha blended in the Lua's order, like lpp-vita's <code>Render.drawModel</code>. Rebuild with <code>viewport/build.py</code> after <code>gen.py</code>.</p>
 <div id="err"></div>
 
 <script type="importmap">{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.min.js" } }</script>
@@ -212,7 +212,7 @@ async function mesh(set, obj) {
     let geo;
     try { geo = await geometry(`sets/${set}/${obj}.txt`); } catch (e) { meshCache.set(key, null); missing.add(key); return null; }
     const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
-      transparent: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }));
+      transparent: true, depthTest: true, depthWrite: true, side: THREE.DoubleSide, toneMapped: false }));   // vita2d leaves GXM's depth test on
     m.visible = false; m.frustumCulled = false; three.add(m); meshCache.set(key, m);
   }
   return meshCache.get(key);
@@ -229,7 +229,7 @@ const save = () => { try { localStorage.setItem('fmv', JSON.stringify({ kind: S.
 
 // ---- renderer ----------------------------------------------------------------------------
 const stage = $('stage');
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, premultipliedAlpha: false });
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, premultipliedAlpha: false, logarithmicDepthBuffer: false });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.setClearColor(0x000000, 0);

@@ -255,6 +255,58 @@ def rainbow_sweep(img, box, ang_deg):
     img.paste(region, (x0, y0))
 
 
+def x_crossings(poly, y):
+    xs = []
+    n = len(poly)
+    for i in range(n):
+        (x0, y0), (x1, y1) = poly[i], poly[(i + 1) % n]
+        if (y0 > y) != (y1 > y):
+            xs.append(x0 + (x1 - x0) * (y - y0) / (y1 - y0))
+    return sorted(xs)
+
+
+def face_with_holes(mesh, outline, holes, z, uvf):
+    """A flat face with real holes (the Vita depth-tests, so pockets must be open in the
+    face): the face is cut into horizontal slabs at every vertex height and each slab is
+    filled with quads between the outline and the hole intervals."""
+    def free(y):
+        xs = x_crossings(outline, y)
+        segs = [(xs[i], xs[i + 1]) for i in range(0, len(xs) - 1, 2)]
+        cuts = []
+        for h in holes:
+            hx = x_crossings(h, y)
+            cuts += [(hx[i], hx[i + 1]) for i in range(0, len(hx) - 1, 2)]
+        cuts.sort()
+        out = []
+        for a, b in segs:
+            cur = a
+            for c0, c1 in cuts:
+                if c1 <= cur or c0 >= b:
+                    continue
+                if c0 > cur:
+                    out.append((cur, c0))
+                cur = max(cur, c1)
+            if cur < b - 1e-9:
+                out.append((cur, b))
+        return out
+
+    def slab(y0, y1, depth=0):
+        eps = (y1 - y0) * 1e-3
+        f0, f1 = free(y0 + eps), free(y1 - eps)
+        if len(f0) != len(f1):
+            if depth < 4:
+                ym = (y0 + y1) / 2
+                slab(y0, ym, depth + 1)
+                slab(ym, y1, depth + 1)
+            return
+        for (a0, b0), (a1, b1) in zip(f0, f1):
+            mesh.quad(((a0, y0, z), uvf(a0, y0)), ((b0, y0, z), uvf(b0, y0)), ((b1, y1, z), uvf(b1, y1)), ((a1, y1, z), uvf(a1, y1)))
+    ys = sorted(set([p[1] for p in outline] + [p[1] for h in holes for p in h]))
+    for y0, y1 in zip(ys, ys[1:]):
+        if y1 - y0 > 1e-6:
+            slab(y0, y1)
+
+
 # ================================================================== PS VITA CARD (traced)
 VTRACE = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "vita_trace.json")))
 VT = dict(shell=40, well=41, white=42, blue=43, art=44, arrow=45, psvita=range(46, 52),
@@ -404,7 +456,7 @@ def vita_card():
     for poly in pockets:
         fan(m_, poly, zfloor, Ab)
     m_.write("float_vita_backcuts")
-    m_ = Mesh(); fan(m_, outline, zb, Ab); m_.write("float_vita_back")
+    m_ = Mesh(); face_with_holes(m_, outline, pockets, zb, Ab); m_.write("float_vita_back")
     walls = {"R": Mesh(), "T": Mesh(), "L": Mesh(), "B": Mesh()}
     for poly in pockets:
         cx_ = sum(p[0] for p in poly) / len(poly)
@@ -423,8 +475,8 @@ def vita_card():
     band_sides("float_vita_band", outline, zb, zf, 0.5, 0.5, 0.55, 0.95,
                z0f=lambda mx, my: zfloor if in_pocket(mx, my) else zb)
     # --- front
-    m_ = Mesh(); fan(m_, outline, zf, A); m_.write("float_vita_front")
-    m_ = Mesh(); fan(m_, well, zwell, A); m_.write("float_vita_well")
+    m_ = Mesh(); face_with_holes(m_, outline, [well], zf, A); m_.write("float_vita_front")
+    m_ = Mesh(); fan(m_, well, zwell, A); band(m_, well, zwell, zf, 0.5, 0.5, 0.988, 0.962); m_.write("float_vita_well")
     # label: the cover art, cropped to the art window's aspect (covers are taller than wide)
     aw, ah = abb[2] - abb[0], abb[3] - abb[1]
     cover_aspect = 250 / 320
@@ -838,7 +890,7 @@ def psp_umd():
             if skip and skip(p0, p1):
                 continue
             extra_walls[wall_side(p0, p1, cx_, cy_)].append(wall_quad(p0, p1))
-    m = Mesh(); ring_to_outline(m, R_open, inner, zb, Ab, seg * 2); m.write("float_psp_shellback")
+    m = Mesh(); face_with_holes(m, inner, [circle(R_open, 96), slot, edge_cut, left_cut, dome], zb, Ab); m.write("float_psp_shellback")
     m = Mesh(); strip(m, inner, zb, outline, zb + bev, 0.5, 0.5, 0.78, 0.82, skip=in_notch); m.write("float_psp_shellbackbevel")
     m = Mesh(); ring(m, 0.30, R_d, disc_zb - 0.004, planar(dbb), seg); m.write("float_psp_sheen")
     m = Mesh(); ring(m, r_pin, R_d, disc_zb, planar(dbb, 0, 0.5, 0.5, 0.5, mirror=True), seg); m.write("float_psp_discback")
