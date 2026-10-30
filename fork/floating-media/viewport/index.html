@@ -74,7 +74,7 @@ summary small { color: var(--fg-dim); font-weight: 400; margin-left: 6px; }
   <button class="btn" id="b-spin" aria-pressed="false">Spin</button>
   <button class="btn" id="b-idle" aria-pressed="false">Float</button>
   <button class="btn" id="b-gloss" aria-pressed="true">Selected</button>
-  <button class="btn" id="b-grime" aria-pressed="true">Grime</button>
+  <button class="btn" id="b-grime" aria-pressed="false">Grime</button>
   <button class="btn" id="b-wire" aria-pressed="false">Wire</button>
   <button class="btn" id="b-disc" aria-pressed="false" hidden>Disc label</button>
   <button class="btn" id="b-ab" hidden>Hold: compare</button>
@@ -224,7 +224,7 @@ async function mesh(set, obj) {
 }
 
 // ---- state ---------------------------------------------------------------------------------
-const S = { kind: 'vita', set: scene.sets[0], rx: 0, ry: 0, zoom: 1, gloss: true, grime: true, wire: false, spin: false, idle: false, disc: false,
+const S = { kind: 'vita', set: scene.sets[0], rx: 0, ry: 0, zoom: 1, gloss: true, grime: false, wire: false, spin: false, idle: false, disc: false,
   art: { vita: scene.art.vita[0], psp: scene.art.psp[0], psx: scene.art.psx[0] }, bg: scene.art.bg.includes('bg_studio.png') ? 'bg_studio.png' : scene.art.bg[0],
   hidden: { vita: new Set(), psp: new Set(), psx: new Set() } };
 try { Object.assign(S, JSON.parse(localStorage.getItem('fmv') || '{}'), { hidden: S.hidden }); } catch (e) {}
