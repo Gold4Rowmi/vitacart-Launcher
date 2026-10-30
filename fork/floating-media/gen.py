@@ -541,6 +541,19 @@ def mask_quads(mesh, polys, z, uvf, cell):
                 mesh.quad(((ax, ay, z), uvf(ax, ay)), ((bx, ay, z), uvf(bx, ay)), ((bx, by, z), uvf(bx, by)), ((ax, by, z), uvf(ax, by)))
 
 
+
+def glyph_mesh(mesh, polys, z, uvf):
+    """Exact mesh of glyph-like shapes (outlines with counters): each outer polygon is filled
+    with face_with_holes, the polygons it contains being its holes."""
+    polys = [clean_poly(p) for p in polys if len(p) > 2]
+    inside = [any(j != i and point_in_poly(polys[i][0][0], polys[i][0][1], polys[j]) for j in range(len(polys))) for i in range(len(polys))]
+    for i, poly in enumerate(polys):
+        if inside[i]:
+            continue
+        holes = [q for j, q in enumerate(polys) if j != i and inside[j] and point_in_poly(q[0][0], q[0][1], poly)]
+        face_with_holes(mesh, poly, holes, z, uvf)
+
+
 def vita_card():
     """PS Vita game card from the trace: domed top, small side step notches, chamfered
     bottom-left corner. Front: matte black shell, a shallow well holding the sticker (domed
@@ -580,8 +593,8 @@ def vita_card():
     # --- back
     def marks(g, s):
         uv = planar(bb, s, 0.5, 0, 1, mirror=True)
-        polys = [q for i in list(VT["logo"]) + list(VT["made_in"]) + list(VT["ce"]) for q in vtrace_polys(i, back)]
-        mask_quads(g, polys, zb - 0.002, uv, 0.012)
+        for i in list(VT["logo"]) + list(VT["made_in"]) + list(VT["ce"]):
+            glyph_mesh(g, vtrace_polys(i, back), zb - 0.002, uv)
     variant_set("float_vita_backgloss_marks", marks)
     def pins(g, s):                        # the gold contacts catch the light too
         uv = planar(bb, s, 0.5, 0, 1, mirror=True)
