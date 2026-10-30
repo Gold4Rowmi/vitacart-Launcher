@@ -217,6 +217,44 @@ def side_strip(d, base, u0=0.0, uw=1.0, r0=0.55, r1=0.95):
         d.line([(u0 * TEX, r), ((u0 + uw) * TEX, r)], fill=tuple(int(min(255, c * (0.7 + 0.6 * k))) for c in base) + (255,))
 
 
+def side_strip_lit(d, img, base, outline, u0, uw, r0, r1, light=(-0.6, 0.8), grain=18, seam=True):
+    """Band texture that follows the outline: columns map to perimeter position (as band_sides
+    does), lit by the edge's outward normal (light from the top left), with a faint parting
+    line between the two shell halves, bright bevel seams and the same grain as the faces."""
+    import numpy as np
+    x0, x1 = int(u0 * TEX), int((u0 + uw) * TEX)
+    y0, y1 = int(r0 * TEX) - 2, int(r1 * TEX) + 2
+    w, h = x1 - x0, y1 - y0
+    n = len(outline)
+    per = [0.0]
+    for i in range(n):
+        per.append(per[-1] + math.dist(outline[i], outline[(i + 1) % n]))
+    tot = per[-1] or 1
+    # outward normal per edge -> lighting per perimeter position
+    cx = sum(p[0] for p in outline) / n
+    cy = sum(p[1] for p in outline) / n
+    lit = np.ones(w, np.float32)
+    for i in range(n):
+        p0, p1 = outline[i], outline[(i + 1) % n]
+        ex, ey = p1[0] - p0[0], p1[1] - p0[1]
+        nx, ny = ey, -ex
+        if (nx * (p0[0] - cx) + ny * (p0[1] - cy)) < 0:
+            nx, ny = -nx, -ny
+        ln = math.hypot(nx, ny) or 1
+        f = (nx * light[0] + ny * light[1]) / ln / math.hypot(*light)
+        a, b = int(per[i] / tot * w), max(int(per[i] / tot * w) + 1, int(per[i + 1] / tot * w))
+        lit[a:b] = 1.0 + 0.28 * f
+    lit = np.convolve(np.pad(lit, 3, mode="wrap"), np.ones(7) / 7, mode="same")[3:-3]
+    v = (np.arange(h, dtype=np.float32) - 2) / max(1, h - 5)          # 0 at one face edge, 1 at the other
+    prof = 0.86 + 0.22 * np.sqrt(np.sin(np.clip(v, 0, 1) * math.pi))     # rounded: brighter in the middle
+    prof = prof - 0.16 * np.exp(-((v - 0.5) / 0.035) ** 2) * (1 if seam else 0)   # parting line
+    prof[:3] *= 1.08; prof[-3:] *= 1.08                                 # lit seams at the bevels
+    tone = np.array(base, np.float32)[None, None, :] * (prof[:, None, None] * lit[None, :, None])
+    noise = np.random.default_rng(3).normal(0, grain, (h, w, 1))
+    arr = np.clip(tone + noise, 0, 255).astype(np.uint8)
+    img.paste(Image.fromarray(np.concatenate([arr, np.full((h, w, 1), 255, np.uint8)], -1), "RGBA"), (x0, y0))
+
+
 def radial(d, px, cx, cy, R, scale, shade):
     """Concentric fill: shade(rr) -> colour for radius rr (model units)."""
     c = px(cx, cy)
@@ -565,7 +603,7 @@ def vita_card():
     wy0, wy1 = int(0.70 * TEX), int(0.745 * TEX)
     d.rectangle([bx0, wy0, bx1, wy1], fill=(241, 242, 245, 255))
     d.text(((bx0 + bx1) / 2, (wy0 + wy1) / 2), "VCJS-10007", fill=(40, 42, 48, 255), font=font(int((wy1 - wy0) * 0.6), weight="regular"), anchor="mm")
-    side_strip(d, (70, 72, 80), 0.5, 0.5, 0.55, 0.95)
+    side_strip_lit(d, img, (58, 60, 68), outline, 0.5, 0.5, 0.55, 0.95, grain=9)
     for r in range(int(0.96 * TEX) - 2, int(0.99 * TEX) + 3):           # pocket wall rows: dark floor edge -> lit face edge
         t = min(1.0, max(0.0, (r - 0.96 * TEX) / (0.03 * TEX)))
         v = int(14 + 70 * t)
@@ -990,7 +1028,7 @@ def psp_umd():
         v = int(250 - 40 * t)
         d.line([(TEX // 2, r), (TEX, r)], fill=(v, v, v + 3, 255))
     # band
-    side_strip(d, (214, 215, 219), 0.5, 0.5, 0.84, 0.94)
+    side_strip_lit(d, img, (226, 227, 231), outline, 0.5, 0.5, 0.84, 0.94, grain=5)
     # inner wall of the window: dark under the lip, lighter towards the disc
     for r in range(int(0.95 * TEX) - 2, int(0.98 * TEX) + 3):
         t = min(1.0, max(0.0, (r - 0.95 * TEX) / (0.03 * TEX)))
