@@ -655,7 +655,7 @@ def vita_card():
     for off, col in ((2, (96, 98, 108)), (0, (10, 11, 14))):     # moulded glossy black: lit edge, then the dark face
         shifted = lambda x, y, o=off: (pb(x, y)[0] + o, pb(x, y)[1] + o)
         vtrace_fill(img, list(VT["logo"]) + list(VT["made_in"]) + list(VT["ce"]), back, shifted, col)
-    d.text(pb(0, -0.10), "VCDA A6307DF6MM2UF", fill=(72, 74, 82, 255), font=font(int(0.05 * scale), weight="regular"), anchor="mm")
+    d.text(pb(0, -0.40), "VCDA A6307DF6MM2UF", fill=(72, 74, 82, 255), font=font(int(0.05 * scale), weight="regular"), anchor="mm")   # serial between MADE IN CHINA and the pins
     d.line([pb(*p) for p in outline] + [pb(*outline[0])], fill=(95, 98, 106, 255), width=3)
     bake_light(img, (0, 0, TEX // 2, TEX // 2), [([pf(*q) for q in outline], 1.0), ([pf(*q) for q in well], 0.86)], k=16.0, ao=0.6, blur=3)
     bake_light(img, (TEX // 2, 0, TEX, TEX // 2), [([pb(*q) for q in outline], 1.0)] + [([pb(*q) for q in poly], 0.5) for poly in pockets]
