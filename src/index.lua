@@ -13922,7 +13922,7 @@ FLOAT = {
     GRIME = false,         -- wear overlay (dust, fingerprints, scuffs); off, judged too dirty
     SHINE = { vita = 0.10, psp = 0.14, psx = 0.14 },   -- how far the soft label sheen drifts (model units) at full yaw
     SHINE_SPAN = 40,       -- degrees of yaw for the full slide
-    REFLECT = true,        -- floor reflection under the selected item
+    REFLECT = false,       -- floor reflection under the selected item (off: judged odd)
     REFLECT_LAYERS = { vita = { "front", "well", "label", "bands", "bandR", "bandT", "bandL", "bandB" },
                        psp = { "shellfront", "shellfrontbevel", "label", "hub", "glass", "bandR", "bandT", "bandL", "bandB" },
                        psx = { "front", "label", "band" } },   -- layer -> facing threshold (see draw_layers)
@@ -14194,7 +14194,7 @@ function FLOAT.sheen_angle(rx, ry)
 end
 
 function FLOAT.draw_shadow(px, py, pz, ry)
-    Render.drawModel(FLOAT.shadow, px, py - 0.002, pz, 0, ry, 0)   -- just under the floor plane so it is dimmed with the reflection
+    Render.drawModel(FLOAT.shadow, px, py + 0.003, pz, 0, ry, 0)
 end
 
 -- Mirror image of the item in the floor (y = py), fading out with distance from the floor line
