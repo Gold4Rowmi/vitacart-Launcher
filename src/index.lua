@@ -11222,6 +11222,9 @@ function Full_Game_Scan()
                 scan_PSP_game_folder    (adr_partition  .. ":/pspemu/PSP/GAME")
                 scan_PS1_game_folder    (adr_partition  .. ":/pspemu/PSP/GAME")
             end
+            -- RetroFlow Float (fork): never list the same Adrenaline game twice
+            dedupe_table_by_path(psp_table)
+            dedupe_table_by_path(psx_table)
 
         -- Roms
 
@@ -11361,6 +11364,19 @@ function Full_Game_Scan()
 end
 
 
+-- RetroFlow Float (fork): drop later entries that share a game path with an earlier one
+function dedupe_table_by_path(tbl)
+    local seen, out = {}, {}
+    for _, v in ipairs(tbl) do
+        if not v.path or not seen[v.path] then
+            if v.path then seen[v.path] = true end
+            table.insert(out, v)
+        end
+    end
+    for i = #tbl, 1, -1 do tbl[i] = nil end
+    for i, v in ipairs(out) do tbl[i] = v end
+end
+
 function import_cached_DB_tables(def_user_db_file, def_table_name)
     if System.doesFileExist(db_Cache_Folder .. (def_user_db_file)) then
         db_Cache = db_Cache_Folder .. (def_user_db_file)
@@ -11380,7 +11396,12 @@ function import_cached_DB_tables(def_user_db_file, def_table_name)
         else
         -- db_import = dofile(db_Cache)
 
+            local seen_paths = {}   -- RetroFlow Float (fork): a cache can carry the same game twice; keep the first
             for k, v in ipairs(db_import) do
+                if v.path then
+                    if seen_paths[v.path] then goto continue end
+                    seen_paths[v.path] = true
+                end
 
                 -- PSM - check for cover on import
                 -- Commented out, was preventing custom covers being shown - Can't remember why this was in here?
