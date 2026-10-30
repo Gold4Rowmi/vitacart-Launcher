@@ -269,10 +269,16 @@ async function frame() {
   }
   const wanted = new Set();
   const meshes = await Promise.all(list.map(d => mesh(set, d.obj)));
-  const sh = await mesh(set, scene.shadow.obj);
+  let shObj = scene.shadow.obj, shTex = scene.shadow.tex;
+  const ss = scene.shadowSet && scene.shadowSet[kind];
+  if (ss) {   // footprint shadow: silhouette depth follows the pitch
+    const sp = Math.sin(rad(rx)), k = Math.floor(Math.abs(sp) * (ss.steps - 1) + 0.5);
+    shObj = (sp >= 0 ? ss.p : ss.n)[k]; shTex = ss.tex;
+  }
+  const sh = await mesh(set, shObj);
   for (const m of meshCache.values()) if (m) m.visible = false;
   if (sh) {
-    sh.material.map = texture(`sets/${set}/${scene.shadow.tex}`); sh.material.needsUpdate = true;
+    sh.material.map = texture(`sets/${set}/${shTex}`); sh.material.needsUpdate = true;
     sh.position.set(0, FLOOR + 0.003, PZ); sh.rotation.set(0, rad(ry), 0); sh.renderOrder = 0; sh.visible = !S.hidden[kind].has('shadow');
   }
   list.forEach((d, i) => {

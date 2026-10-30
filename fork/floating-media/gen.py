@@ -627,6 +627,7 @@ def vita_card():
     m_.write("float_vita_bands")
     variant_set("float_vita_gloss_arrow", lambda g, s: fan(g, arrow, zf + 0.002, planar(bb, s, 0.5, 0, 1)))
     shine_quad("vita", sbb[2] - sbb[0], sbb[1] + 0.01, sbb[3] - 0.10, zwell + 0.008)   # drifts 0.10 (index.lua FLOAT.SHINE)
+    shadow_set("vita", outline, T)
 
     # ---------------------------------------------------------------- texture (1024 atlas)
     TEX = 1024
@@ -699,6 +700,7 @@ def ps1_disc():
     m = Mesh(); ring(m, r_hole, R, T / 2, planar(bb, 0, 0.5, 0, 0.5), seg); m.write("float_psx_front")
     m = Mesh(); ring(m, r_li, r_lo, T / 2 + 0.003, planar(bb), seg); m.write("float_psx_label")
     shine_quad("psx", 1.30, -0.66, 0.66, T / 2 + 0.007)   # drifts 0.14
+    shadow_set("psx", circle(R, 64), T)
 
     img = Image.new("RGBA", (TEX, TEX), (0, 0, 0, 255))
     d = ImageDraw.Draw(img)
@@ -1051,6 +1053,7 @@ def psp_umd():
         slot_region(g, slot_h, x_end, R_open, zb - 0.002, uv)
     variant_set("float_psp_backrefl", back_overlay)
     shine_quad("psp", 1.24, -0.62, 0.62, disc_zf + 0.010)   # drifts 0.14
+    shadow_set("psp", outline, T)
 
     # ---------------------------------------------------------------- textures
     global TEX
@@ -1333,6 +1336,42 @@ def reflection_fade():
     a = 77 * np.clip(np.minimum(v / 0.22, (1 - v) / 0.22), 0, 1)
     img[..., 3] = a.astype(np.uint8)
     Image.fromarray(img, "RGBA").save(f"{OUT}/float_floor.png")
+
+
+
+SHADOW_STEPS = 12
+
+
+def shadow_set(kind, outline, T):
+    """Footprint shadow under a top light: the item's own silhouette (soft-edged texture on a
+    quad) laid on the floor, its depth scaled by the pitch: a thin strip when upright, the full
+    outline when flat. 12 steps each way (float_<kind>_shadow{k} top towards the camera,
+    float_<kind>_shadown{k} top away)."""
+    bb = bbox(outline)
+    w, h = bb[2] - bb[0], bb[3] - bb[1]
+    cx_, cy_ = (bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2
+    n, margin = 256, 0.14
+    img = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+    sx, sy = (n * (1 - 2 * margin)) / w, (n * (1 - 2 * margin)) / h
+    sc = min(sx, sy)
+    pts = [(n / 2 + (x - cx_) * sc, n / 2 - (y - cy_) * sc) for x, y in outline]
+    ImageDraw.Draw(img).polygon(pts, fill=(0, 0, 0, 150))
+    img = img.filter(ImageFilter.GaussianBlur(9))
+    core = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+    ImageDraw.Draw(core).polygon([(n / 2 + (x - cx_) * sc * 0.8, n / 2 - (y - cy_) * sc * 0.8) for x, y in outline], fill=(0, 0, 0, 90))
+    img.alpha_composite(core.filter(ImageFilter.GaussianBlur(16)))
+    img.save(f"{OUT}/float_{kind}_shadow.png")
+    ext_x = (n / 2) / sc          # half extent of the quad in model units (texture edge to edge)
+    for k in range(SHADOW_STEPS):
+        s_ = math.sin(math.radians(90 * k / (SHADOW_STEPS - 1)))
+        depth = max(T * 1.6, h * s_)                 # the silhouette's depth on the floor
+        ext_z = ext_x * depth / w if False else (n / 2) / sc * (depth / h)
+        for sign, name in ((1, "shadow"), (-1, "shadown")):
+            m = Mesh()
+            # texture row 0 (top of the silhouette) lands at +z (towards the camera) for sign +1
+            m.quad(((cx_ - ext_x, 0, -sign * ext_z), (0.0, 1.0)), ((cx_ + ext_x, 0, -sign * ext_z), (1.0, 1.0)),
+                   ((cx_ + ext_x, 0, sign * ext_z), (1.0, 0.0)), ((cx_ - ext_x, 0, sign * ext_z), (0.0, 0.0)))
+            m.write(f"float_{kind}_{name}{k}")
 
 
 if __name__ == "__main__":

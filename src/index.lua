@@ -13922,6 +13922,7 @@ FLOAT = {
     GRIME = false,         -- wear overlay (dust, fingerprints, scuffs); off, judged too dirty
     SHINE = { vita = 0.10, psp = 0.14, psx = 0.14 },   -- how far the soft label sheen drifts (model units) at full yaw
     SHINE_SPAN = 40,       -- degrees of yaw for the full slide
+    SHADOW_STEPS = 12,     -- footprint shadow: silhouette depth steps from upright (thin strip) to flat
     REFLECT = false,       -- floor reflection under the selected item (off: judged odd)
     REFLECT_LAYERS = { vita = { "front", "well", "label", "bands", "bandR", "bandT", "bandL", "bandB" },
                        psp = { "shellfront", "shellfrontbevel", "label", "hub", "glass", "bandR", "bandT", "bandL", "bandB" },
@@ -14026,6 +14027,14 @@ function FLOAT.load_assets()
             m.labeldisc = Render.loadObject("app0:/DATA/float_psp_labeldisc.obj", imgCoverTmp)
         end
         -- floor reflection: mirrored copies of the base layers (glass layers use the glass image)
+        -- footprint shadow set (falls back to the generic blob if missing)
+        m.shadow_img = Graphics.loadImage("app0:/DATA/float_" .. kind .. "_shadow.png")
+        Graphics.setImageFilters(m.shadow_img, FILTER_LINEAR, FILTER_LINEAR)
+        m.shadow_p, m.shadow_n = {}, {}
+        for i = 0, FLOAT.SHADOW_STEPS - 1 do
+            m.shadow_p[i] = Render.loadObject("app0:/DATA/float_" .. kind .. "_shadow" .. i .. ".obj", m.shadow_img)
+            m.shadow_n[i] = Render.loadObject("app0:/DATA/float_" .. kind .. "_shadown" .. i .. ".obj", m.shadow_img)
+        end
         m.reflect = {}
         for _, name in ipairs(FLOAT.REFLECT_LAYERS[kind] or {}) do
             local img = (name == "glass") and FLOAT.glass_img or (name == "label" and imgCoverTmp or m.body_img)
@@ -14193,8 +14202,17 @@ function FLOAT.sheen_angle(rx, ry)
     return math.deg(math.atan2(math.sin(math.rad(rx)), math.sin(math.rad(ry)) + 1e-6)) + ry * 0.6
 end
 
-function FLOAT.draw_shadow(px, py, pz, ry)
-    Render.drawModel(FLOAT.shadow, px, py + 0.003, pz, 0, ry, 0)
+function FLOAT.draw_shadow(px, py, pz, ry, kind, rx)
+    local m = kind and FLOAT.media[kind]
+    if m and m.shadow_p then
+        -- the item's footprint under a top light: silhouette depth follows the pitch
+        local s = math.sin(math.rad(rx or 0))
+        local k = math.floor(math.abs(s) * (FLOAT.SHADOW_STEPS - 1) + 0.5)
+        local set = (s >= 0) and m.shadow_p or m.shadow_n
+        Render.drawModel(set[k], px, py + 0.003, pz, 0, ry, 0)
+    else
+        Render.drawModel(FLOAT.shadow, px, py + 0.003, pz, 0, ry, 0)
+    end
 end
 
 -- Mirror image of the item in the floor (y = py), fading out with distance from the floor line
@@ -14285,7 +14303,7 @@ function FLOAT.draw_media(kind, icon, px, py, pz, fy, rx, ry, rz, side, cur_p)
     local file = FLOAT.cur_def and cur_p and FLOAT.cur_def[cur_p]
     local disc_label = file and file.float_disc
     if side < 0.5 then FLOAT.sel_icon, FLOAT.sel_disc = icon, disc_label end
-    FLOAT.draw_shadow(px, py, pz, ry)
+    FLOAT.draw_shadow(px, py, pz, ry, kind, rx)
     local cy = py + FLOAT.HALF[kind] + FLOAT.YOFF[kind] + fy
     if FLOAT.REFLECT and side < 0.5 then FLOAT.draw_reflection(kind, icon, px, py, cy, pz, rx, ry, rz) end
     FLOAT.draw_layers(kind, icon, disc_label, px, cy, pz, rx, ry, rz, side < 0.5)

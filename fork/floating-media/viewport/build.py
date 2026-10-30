@@ -82,6 +82,9 @@ def main():
             layers.append(e)
         scene["layers"][k] = layers
         if m.labeldisc: scene["labeldisc"][k] = os.path.basename(m.labeldisc.path)
+        if m.shadow_p:
+            scene.setdefault("shadowSet", {})[k] = {"tex": os.path.basename(m.shadow_img), "steps": int(F.SHADOW_STEPS),
+                "p": [os.path.basename(m.shadow_p[i].path) for i in range(int(F.SHADOW_STEPS))], "n": [os.path.basename(m.shadow_n[i].path) for i in range(int(F.SHADOW_STEPS))]}
         if m.reflect:
             scene.setdefault("reflect", {})[k] = [{"name": m.reflect[i].name, "obj": os.path.basename(m.reflect[i].obj.path), "tex": os.path.basename(m.reflect[i].obj.tex)} for i in range(1, len(m.reflect) + 1)]
 
