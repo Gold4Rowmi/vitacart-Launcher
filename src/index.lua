@@ -14001,19 +14001,27 @@ end
 -- Cover image to load for a game: a real disc label if one exists (PSP only)
 function FLOAT.label_path(file)
     local path = file.icon_path
-    if setReflections ~= 2 or path == nil or file.app_type ~= 2 then
+    if setReflections ~= 2 or path == nil then
         file.float_disc = nil
         return path
     end
     local hit = FLOAT.label_cache[path]
     if hit == nil then
-        local alt = path:gsub("%.png$", "_umd.png")
-        hit = (alt ~= path and System.doesFileExist(alt)) and alt or false
+        hit = false
+        -- printed-look copy made by fork/floating-media/print_covers.py (Float's own folder)
+        local printed = path:gsub("^ux0:/data/RetroFlow/COVERS/", "ux0:/data/RetroFlowFloat/PRINT/COVERS/"):gsub("%.jpg$", ".png")
+        if file.app_type == 2 then
+            local alt_p = printed:gsub("%.png$", "_umd.png")
+            local alt = path:gsub("%.png$", "_umd.png")
+            if alt_p ~= printed and System.doesFileExist(alt_p) then hit = { alt_p, true }
+            elseif alt ~= path and System.doesFileExist(alt) then hit = { alt, true } end
+        end
+        if not hit and printed ~= path and System.doesFileExist(printed) then hit = { printed, false } end
         FLOAT.label_cache[path] = hit
     end
     if hit then
-        file.float_disc = true
-        return hit
+        file.float_disc = hit[2] or nil
+        return hit[1]
     end
     file.float_disc = nil
     return path
