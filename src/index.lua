@@ -4561,7 +4561,9 @@ wallpaper_table_default =
 
 -- Scan wallpaper folder for settings
 local wallpaper_table_scanned = {}
-files_wallpaper = System.listDirectory("ux0:/data/RetroFlow/WALLPAPER/") or {}
+-- FLOATING PHYSICAL MEDIA (fork): RetroFlow Float also scans its own wallpaper folder
+for _, wp_dir in ipairs({ "ux0:/data/RetroFlow/WALLPAPER/", "ux0:/data/RetroFlowFloat/WALLPAPER/" }) do
+files_wallpaper = System.listDirectory(wp_dir) or {}
 for i, file in pairs(files_wallpaper) do
     if not file.directory then
         if string.match(file.name, "%.png") or string.match(file.name, "%.jpg") then
@@ -4569,10 +4571,11 @@ for i, file in pairs(files_wallpaper) do
             -- wallpaper_name_noExtension = file.name
             file.filename = file.name
             file.wallpaper_string = wallpaper_name_noExtension
-            file.wallpaper_path = "ux0:/data/RetroFlow/WALLPAPER/" .. file.name
+            file.wallpaper_path = wp_dir .. file.name
             table.insert(wallpaper_table_scanned, file)
         end
     end
+end
 end
 table.sort(wallpaper_table_scanned, function(a, b) return (a.filename:lower() < b.filename:lower()) end)
 
