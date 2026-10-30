@@ -25,7 +25,7 @@ from PIL import Image, ImageDraw, ImageFilter
 
 OUT = sys.argv[1] if len(sys.argv) > 1 else "out/DATA"
 os.makedirs(OUT, exist_ok=True)
-GLOSS_STEPS = 9
+GLOSS_STEPS = 24
 TEX = 512
 
 
@@ -307,6 +307,33 @@ def face_with_holes(mesh, outline, holes, z, uvf):
             slab(y0, y1)
 
 
+def bake_light(img, box, layers, light=(-0.7, -0.75), k=14.0, ao=0.55, blur=2.5, ao_blur=14):
+    """Fake lighting for a flat atlas region: layers = [(pixel polygon, height 0..1), ...] drawn
+    in order (0 outside the part). Edges whose downhill side faces the light brighten, the
+    others darken (rolled edges, lit lips), and low areas next to higher ones get ambient
+    occlusion (pocket floors, the well). Multiplies the region's colours in place."""
+    import numpy as np
+    x0, y0, x1, y1 = [int(v) for v in box]
+    w, h = x1 - x0, y1 - y0
+    hm = Image.new("L", (w, h), 0)
+    hd = ImageDraw.Draw(hm)
+    for poly, height in layers:
+        hd.polygon([(x - x0, y - y0) for x, y in poly], fill=int(255 * height))
+    H = np.asarray(hm).astype(np.float32) / 255.0
+    Hb = np.asarray(hm.filter(ImageFilter.GaussianBlur(blur))).astype(np.float32) / 255.0
+    gy, gx = np.gradient(Hb)
+    lx, ly = light
+    n = math.hypot(lx, ly)
+    lit = -(gx * lx + gy * ly) / n * k          # downhill towards the light = lit
+    Hw = np.asarray(hm.filter(ImageFilter.GaussianBlur(ao_blur))).astype(np.float32) / 255.0
+    occ = np.clip(Hw - H, 0, 1) * ao            # lower than the neighbourhood = in shadow
+    inside = H > 0.01
+    mul = np.where(inside, np.clip(1.0 + lit - occ, 0.35, 1.6), 1.0)
+    region = np.asarray(img.crop(box)).astype(np.float32)
+    region[..., :3] = np.clip(region[..., :3] * mul[..., None], 0, 255)
+    img.paste(Image.fromarray(region.astype(np.uint8), "RGBA"), (x0, y0))
+
+
 # ================================================================== PS VITA CARD (traced)
 VTRACE = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "vita_trace.json")))
 VT = dict(shell=40, well=41, white=42, blue=43, art=44, arrow=45, psvita=range(46, 52),
@@ -520,6 +547,9 @@ def vita_card():
         vtrace_fill(img, list(VT["logo"]) + list(VT["made_in"]) + list(VT["ce"]), back, shifted, col)
     d.text(pb(0, -0.10), "VCDA A6307DF6MM2UF", fill=(72, 74, 82, 255), font=font(int(0.05 * scale), weight="regular"), anchor="mm")
     d.line([pb(*p) for p in outline] + [pb(*outline[0])], fill=(95, 98, 106, 255), width=3)
+    bake_light(img, (0, 0, TEX // 2, TEX // 2), [([pf(*q) for q in outline], 1.0), ([pf(*q) for q in well], 0.86)], k=16.0, ao=0.6, blur=3)
+    bake_light(img, (TEX // 2, 0, TEX, TEX // 2), [([pb(*q) for q in outline], 1.0)] + [([pb(*q) for q in poly], 0.5) for poly in pockets]
+               + [([pb(*q) for q in vtrace_polys(i, back)[0]], 0.72) for i in VT["gold"]], k=16.0, ao=0.7, blur=3)
     noise = Image.effect_noise((TEX // 2, TEX // 2), 22).convert("L")   # fine speckle of the moulded plastic
     grain = Image.merge("RGBA", (noise, noise, noise, Image.new("L", noise.size, 40)))
     for ox in (0, TEX // 2):
@@ -980,6 +1010,11 @@ def psp_umd():
     ps = px_of((-r_stick, -r_stick, r_stick, r_stick), 0.52, 0.52, 0.22, 0.22)
     trace_fill(img, TR["umd"], front, ps, (39, 117, 185))
     trace_fill(img, TR["small"], front, ps, (100, 102, 108))
+    # lighting: rolled edges and the pockets' shadows
+    win_px = [pf(*q) for q in circle(R_open, 96)]
+    bake_light(img, (0, 0, TEX // 2, TEX // 2), [([pf(*q) for q in outline], 1.0), (win_px, 0.6)], k=22.0, ao=0.7, blur=4)
+    bake_light(img, (TEX // 2, 0, TEX, TEX // 2), [([pb(*q) for q in outline], 1.0), ([pb(*q) for q in circle(R_open, 96)], 0.6),
+               ([pb(*q) for q in slot], 0.55), ([pb(*q) for q in edge_cut], 0.55), ([pb(*q) for q in left_cut], 0.55), ([pb(*q) for q in dome], 0.75)], k=22.0, ao=0.7, blur=4)
     # plastic grain on the shell faces
     noise = Image.effect_noise((TEX // 2, TEX // 2), 6).convert("L")
     grain = Image.merge("RGBA", (noise, noise, noise, Image.new("L", noise.size, 22)))
@@ -1029,8 +1064,16 @@ def env_texture():
                 dx = (u - cx) / wdt
                 dy = (v - 0.22) / hgt
                 sb += math.exp(-(dx * dx) * 2.2) * max(0.0, 1 - dy * dy) * 0.55
-            a = min(1.0, base + sb)
-            tint = (255, 252, 246) if sb > 0.05 else (210, 225, 245)
+            # a bright window pane and a thin light tube in the reflection
+            win = 0.0
+            for cx, cy, wx, wy in ((0.55, 0.30, 0.09, 0.22), (0.12, 0.34, 0.05, 0.18)):
+                if abs(u - cx) < wx and abs(v - cy) < wy:
+                    ex = min(1.0, (wx - abs(u - cx)) / 0.012)
+                    ey = min(1.0, (wy - abs(v - cy)) / 0.02)
+                    win = max(win, 0.7 * min(ex, ey) * (1 - 0.6 * abs(u - cx) / wx))
+            tube = 0.45 * math.exp(-((v - 0.52) / 0.012) ** 2) * (0.5 + 0.5 * math.cos((u - 0.7) * 3.2))
+            a = min(1.0, base + sb + win + tube)
+            tint = (255, 252, 246) if sb > 0.05 or win > 0.05 else (210, 225, 245)
             px[x, y] = (tint[0], tint[1], tint[2], int(255 * a * 0.75))
     img.filter(ImageFilter.GaussianBlur(2)).save(f"{OUT}/float_env.png")
 
@@ -1089,12 +1132,20 @@ def sheen_texture():
 
 
 def gloss_texture():
+    """Highlight that slides across a glossy surface: a wide soft sheen with a sharp bright
+    streak inside it, slanted like a softbox reflection."""
+    import numpy as np
     w, h = 512, 256
-    img = Image.new("RGBA", (w, h), (255, 255, 255, 0))
-    d = ImageDraw.Draw(img)
-    d.polygon([(226, 0), (262, 0), (300, h), (264, h)], fill=(255, 255, 255, 120))
-    d.polygon([(276, 0), (286, 0), (324, h), (314, h)], fill=(255, 255, 255, 70))
-    img.filter(ImageFilter.GaussianBlur(9)).save(f"{OUT}/float_gloss.png")
+    ys, xs = np.mgrid[0:h, 0:w].astype(np.float32)
+    u = xs - 256 - (ys - 128) * 0.28                 # slanted
+    sheen = np.exp(-(u / 48.0) ** 2) * 0.30
+    streak = np.exp(-(u / 7.0) ** 2) * 0.60
+    streak2 = np.exp(-((u + 26) / 4.0) ** 2) * 0.22
+    a = np.clip(sheen + streak + streak2, 0, 1)
+    img = np.zeros((h, w, 4), np.uint8)
+    img[..., :3] = 255
+    img[..., 3] = (a * 255).astype(np.uint8)
+    Image.fromarray(img, "RGBA").filter(ImageFilter.GaussianBlur(1.0)).save(f"{OUT}/float_gloss.png")
 
 
 if __name__ == "__main__":

@@ -13893,7 +13893,7 @@ FLOAT = {
     DRAG_PITCH = 0.35,
     FLICK_MAX = 900,       -- deg/s carried into the spring on release
     GRAB_W = 170, GRAB_Y0 = 40, GRAB_Y1 = 440,  -- touch area of the selected item
-    GLOSS_STEPS = 9,
+    GLOSS_STEPS = 24,   -- highlight positions per view-dependent overlay set
     BACK_ONLY = { backcuts = 0.5, backetch = -0.05 },    -- pocket floors also show from the side   -- layer -> facing threshold (see draw_layers)
     HALF = { vita = 0.949, psp = 0.956, psx = 0.925 },
     YOFF = { vita = 0, psp = 0.018, psx = 0 },
