@@ -54,7 +54,7 @@ def main():
 
     kinds = sorted(k for k in F.LAYERS.keys())
     scene = {
-        "steps": int(F.GLOSS_STEPS), "grime": bool(F.GRIME), "shine": {k: float(F.SHINE[k]) for k in kinds if F.SHINE[k]}, "shineSpan": float(F.SHINE_SPAN), "litGain": float(F.LIT_GAIN),
+        "steps": int(F.GLOSS_STEPS), "grime": bool(F.GRIME), "shine": {k: float(F.SHINE[k]) for k in kinds if F.SHINE[k]}, "shineSpan": float(F.SHINE_SPAN),
         "half": {k: float(F.HALF[k]) for k in kinds},
         "yoff": {k: float(F.YOFF[k]) for k in kinds},
         "layers": {}, "labeldisc": {}, "sets": list(sets), "ref": [],
