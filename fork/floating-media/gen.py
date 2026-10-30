@@ -627,6 +627,7 @@ def vita_card():
     m_.write("float_vita_bands")
     variant_set("float_vita_gloss_arrow", lambda g, s: fan(g, arrow, zf + 0.002, planar(bb, s, 0.5, 0, 1)))
     shine_quad("vita", sbb[2] - sbb[0], sbb[1] + 0.01, sbb[3] - 0.10, zwell + 0.008)   # drifts 0.10 (index.lua FLOAT.SHINE)
+    lit_set("vita", outline, zf + 0.006, zb - 0.006)
 
     # ---------------------------------------------------------------- texture (1024 atlas)
     TEX = 1024
@@ -699,6 +700,7 @@ def ps1_disc():
     m = Mesh(); ring(m, r_hole, R, T / 2, planar(bb, 0, 0.5, 0, 0.5), seg); m.write("float_psx_front")
     m = Mesh(); ring(m, r_li, r_lo, T / 2 + 0.003, planar(bb), seg); m.write("float_psx_label")
     shine_quad("psx", 1.30, -0.66, 0.66, T / 2 + 0.007)   # drifts 0.14
+    lit_set("psx", circle(R, 64), T / 2 + 0.009, -T / 2 - 0.009)
 
     img = Image.new("RGBA", (TEX, TEX), (0, 0, 0, 255))
     d = ImageDraw.Draw(img)
@@ -1051,6 +1053,7 @@ def psp_umd():
         slot_region(g, slot_h, x_end, R_open, zb - 0.002, uv)
     variant_set("float_psp_backrefl", back_overlay)
     shine_quad("psp", 1.24, -0.62, 0.62, disc_zf + 0.010)   # drifts 0.14
+    lit_set("psp", outline, zf + 0.006, zb - 0.006)
 
     # ---------------------------------------------------------------- textures
     global TEX
@@ -1285,6 +1288,35 @@ def shine_quad(kind, w, y0, y1, z):
     m.write(f"float_{kind}_shine")
 
 
+
+def lit_texture():
+    """Top-down light strip for the 'lit' overlays: the column (u) is the face's brightness level,
+    from shaded (dark, facing away from the light) through neutral to lit (white, facing up);
+    down each column (v) the light falls off from a hot zone at the top."""
+    import numpy as np
+    w, h = 1024, 256
+    ys, xs = np.mgrid[0:h, 0:w].astype(np.float32)
+    L = xs / (w - 1) * 2 - 1          # -1 .. 1
+    v = ys / (h - 1)                  # 0 top .. 1 bottom
+    light = np.clip(L, 0, 1) * 0.34 * (0.55 + 0.45 * (1 - v) ** 1.6)
+    shade = np.clip(-L, 0, 1) * 0.42 * (0.6 + 0.4 * v)
+    img = np.zeros((h, w, 4), np.uint8)
+    white = light > shade
+    img[..., :3] = np.where(white[..., None], 255, 12)
+    img[..., 3] = (np.maximum(light, shade) * 255).astype(np.uint8)
+    Image.fromarray(img, "RGBA").save(f"{OUT}/float_lit.png")
+
+
+def lit_set(kind, poly, zf, zb, steps=GLOSS_STEPS):
+    """Front and back overlays, one mesh per brightness level: each maps the whole face onto a
+    narrow column of the lit strip (constant level across the face, hot zone along the top)."""
+    bb = bbox(poly)
+    for i in range(steps):
+        u0, uw = i / steps + 0.5 / steps * 0.0, 1.0 / steps
+        m = Mesh(); fan(m, poly, zf, planar(bb, u0, uw, 0, 1)); m.write(f"float_{kind}_lit{i}")
+        m = Mesh(); fan(m, poly, zb, planar(bb, u0, uw, 0, 1, mirror=True)); m.write(f"float_{kind}_backlit{i}")
+
+
 if __name__ == "__main__":
     hv, offv = vita_card()
     hp = ps1_disc()
@@ -1297,5 +1329,6 @@ if __name__ == "__main__":
     glass_texture()
     grime_texture()
     shine_texture()
+    lit_texture()
     print(f"half heights: vita={hv:.3f} (offset {offv:+.3f}) psx={hp:.3f} psp={hu:.3f} (psp centre offset {off:+.3f})")
     print(len(os.listdir(OUT)), "files")

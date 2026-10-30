@@ -13921,19 +13921,20 @@ FLOAT = {
     BACK_ONLY = { backcuts = 0.5, backetch = -0.05 },    -- pocket floors also show from the side
     GRIME = false,         -- wear overlay (dust, fingerprints, scuffs); off, judged too dirty
     SHINE = { vita = 0.10, psp = 0.14, psx = 0.14 },   -- how far the soft label sheen drifts (model units) at full yaw
-    SHINE_SPAN = 40,       -- degrees of yaw for the full slide   -- layer -> facing threshold (see draw_layers)
+    SHINE_SPAN = 40,       -- degrees of yaw for the full slide
+    LIT_GAIN = 1.6,        -- top-down light response: 1 = full range at 90 degrees of pitch   -- layer -> facing threshold (see draw_layers)
     HALF = { vita = 0.949, psp = 0.956, psx = 0.925 },
     YOFF = { vita = 0, psp = 0.018, psx = 0 },
     LAYERS = {
         -- pocket walls are listed before the floors: drawn after them when the back faces the camera
-        vita = { "backgrime", "backgloss_marks", "wallbackR", "wallbackT", "wallbackL", "wallbackB", "backgloss_pins", "backcuts", "back",
-                 "bandR", "bandT", "bandL", "bandB", "front", "well", "label", "bands", "gloss_arrow", "shine", "grime" },
-        psx = { "sheen", "back", "band", "front", "label", "shine" },
+        vita = { "backlit", "backgrime", "backgloss_marks", "wallbackR", "wallbackT", "wallbackL", "wallbackB", "backgloss_pins", "backcuts", "back",
+                 "bandR", "bandT", "bandL", "bandB", "front", "well", "label", "bands", "gloss_arrow", "shine", "lit", "grime" },
+        psx = { "backlit", "sheen", "back", "band", "front", "label", "shine", "lit" },
         -- "back..." overlays belong to the back face: drawn only when it faces the camera
-        psp = { "backgrime", "backrefl", "slotrim", "backetch", "backglass", "wallbackR", "wallbackT", "wallbackL", "wallbackB",
+        psp = { "backlit", "backgrime", "backrefl", "slotrim", "backetch", "backglass", "wallbackR", "wallbackT", "wallbackL", "wallbackB",
                 "backcuts", "shellback", "shellbackbevel", "sheen", "discback", "bandR", "bandT", "bandL", "bandB",
                 "label", "hub", "glass", "wallR", "wallT", "wallL", "wallB",
-                "shellfront", "shellfrontbevel", "shade", "refl", "shine", "grime" },
+                "shellfront", "shellfrontbevel", "shade", "refl", "shine", "lit", "grime" },
     },
 
     -- State
@@ -13971,7 +13972,9 @@ function FLOAT.load_assets()
     Graphics.setImageFilters(FLOAT.env_img, FILTER_LINEAR, FILTER_LINEAR)
     FLOAT.shade_img = Graphics.loadImage("app0:/DATA/float_shade.png")
     Graphics.setImageFilters(FLOAT.shade_img, FILTER_LINEAR, FILTER_LINEAR)
-    FLOAT.VARIANT_TEX = { gloss = FLOAT.gloss_img, refl = FLOAT.env_img, shade = FLOAT.shade_img }
+    FLOAT.lit_img = Graphics.loadImage("app0:/DATA/float_lit.png")
+    Graphics.setImageFilters(FLOAT.lit_img, FILTER_LINEAR, FILTER_LINEAR)
+    FLOAT.VARIANT_TEX = { gloss = FLOAT.gloss_img, refl = FLOAT.env_img, shade = FLOAT.shade_img, lit = FLOAT.lit_img }
     FLOAT.glass_img = Graphics.loadImage("app0:/DATA/float_glass.png")
     Graphics.setImageFilters(FLOAT.glass_img, FILTER_LINEAR, FILTER_LINEAR)
     FLOAT.grime_img = Graphics.loadImage("app0:/DATA/float_grime.png")
@@ -14225,9 +14228,16 @@ function FLOAT.draw_layers(kind, icon, disc_label, px, cy, pz, rx, ry, rz, with_
             -- (measured from whichever face the overlay belongs to)
             local vis = L.back and facing < -0.15 or (not L.back and facing > 0.15)
             if vis then
-                local yaw = L.back and (ry % 360) - 180 or ((ry + 180) % 360) - 180
-                local span = L.name:find("gloss") and 26 or 55
-                local g = math.floor(FLOAT.clamp((yaw / span + 1) / 2, 0, 1) * (FLOAT.GLOSS_STEPS - 1) + 0.5)
+                local g
+                if L.name:find("lit") then
+                    -- top-down light: level = how much this face points up (tilt the top away = brighter)
+                    local up = (L.back and 1 or -1) * math.sin(math.rad(rx))
+                    g = math.floor(FLOAT.clamp((up * FLOAT.LIT_GAIN + 1) / 2, 0, 1) * (FLOAT.GLOSS_STEPS - 1) + 0.5)
+                else
+                    local yaw = L.back and (ry % 360) - 180 or ((ry + 180) % 360) - 180
+                    local span = L.name:find("gloss") and 26 or 55
+                    g = math.floor(FLOAT.clamp((yaw / span + 1) / 2, 0, 1) * (FLOAT.GLOSS_STEPS - 1) + 0.5)
+                end
                 Render.drawModel(L.set[g], px, cy, pz, rx, ry, rz)
             end
         elseif L.side then

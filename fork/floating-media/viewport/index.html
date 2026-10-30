@@ -146,9 +146,15 @@ function drawList(kind, disc, rx, ry, rz, withGloss, grimeOn = scene.grime) {
     } else if (L.set) {
       const vis = L.back ? facing < -0.15 : facing > 0.15;
       if (vis) {
-        const yaw = L.back ? mod(ry, 360) - 180 : mod(ry + 180, 360) - 180;
-        const span = L.name.includes('gloss') ? 26 : 55;
-        const g = Math.floor(clamp((yaw / span + 1) / 2, 0, 1) * (STEPS - 1) + 0.5);
+        let g;
+        if (L.name.includes('lit')) {
+          const up = (L.back ? 1 : -1) * Math.sin(rad(rx));
+          g = Math.floor(clamp((up * scene.litGain + 1) / 2, 0, 1) * (STEPS - 1) + 0.5);
+        } else {
+          const yaw = L.back ? mod(ry, 360) - 180 : mod(ry + 180, 360) - 180;
+          const span = L.name.includes('gloss') ? 26 : 55;
+          g = Math.floor(clamp((yaw / span + 1) / 2, 0, 1) * (STEPS - 1) + 0.5);
+        }
         out.push({ obj: L.set[g], tex: L.tex, rz, layer: L.name });
       }
     } else if (L.side) {
