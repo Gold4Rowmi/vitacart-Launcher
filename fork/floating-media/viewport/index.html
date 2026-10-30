@@ -222,7 +222,7 @@ async function mesh(set, obj) {
 
 // ---- state ---------------------------------------------------------------------------------
 const S = { kind: 'vita', set: scene.sets[0], rx: 0, ry: 0, zoom: 1, gloss: true, wire: false, spin: false, idle: false, disc: false,
-  art: { vita: scene.art.vita[0], psp: scene.art.psp[0], psx: scene.art.psx[0] }, bg: scene.art.bg[0],
+  art: { vita: scene.art.vita[0], psp: scene.art.psp[0], psx: scene.art.psx[0] }, bg: scene.art.bg.includes('bg_studio.png') ? 'bg_studio.png' : scene.art.bg[0],
   hidden: { vita: new Set(), psp: new Set(), psx: new Set() } };
 try { Object.assign(S, JSON.parse(localStorage.getItem('fmv') || '{}'), { hidden: S.hidden }); } catch (e) {}
 if (!scene.sets.includes(S.set)) S.set = scene.sets[0];
