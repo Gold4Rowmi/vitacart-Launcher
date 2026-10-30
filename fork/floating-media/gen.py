@@ -246,7 +246,7 @@ def side_strip_lit(d, img, base, outline, u0, uw, r0, r1, light=(-0.6, 0.8), gra
         lit[a:b] = 1.0 + 0.28 * f
     lit = np.convolve(np.pad(lit, 3, mode="wrap"), np.ones(7) / 7, mode="same")[3:-3]
     v = (np.arange(h, dtype=np.float32) - 2) / max(1, h - 5)          # 0 at one face edge, 1 at the other
-    prof = 0.86 + 0.22 * np.sqrt(np.sin(np.clip(v, 0, 1) * math.pi))     # rounded: brighter in the middle
+    prof = 0.86 + 0.22 * np.sqrt(np.maximum(np.sin(np.clip(v, 0, 1).astype(np.float64) * math.pi), 0.0))   # rounded: brighter in the middle
     prof = prof - 0.16 * np.exp(-((v - 0.5) / 0.035) ** 2) * (1 if seam else 0)   # parting line
     prof[:3] *= 1.08; prof[-3:] *= 1.08                                 # lit seams at the bevels
     tone = np.array(base, np.float32)[None, None, :] * (prof[:, None, None] * lit[None, :, None])
