@@ -131,6 +131,12 @@ function drawList(kind, disc, rx, ry, rz, withGloss, grimeOn = scene.grime) {
     const L = m[facing >= 0 ? i - 1 : n - i];
     if (!withGloss && (L.set || L.side || L.detail || L.backOnly !== undefined)) {
       // neighbour: base layers only
+    } else if (L.shine) {
+      if (facing > 0.15) {
+        const yaw = mod(ry + 180, 360) - 180;
+        const off = -clamp(yaw / scene.shineSpan, -1, 1) * (scene.shine[kind] || 0.3);
+        out.push({ obj: L.obj, tex: L.tex, rz, layer: L.name, off });
+      }
     } else if (L.grime) {
       if (grimeOn && (L.back === (facing < 0))) out.push({ obj: L.obj, tex: L.tex, rz, layer: L.name });
     } else if (L.band) {
@@ -269,7 +275,10 @@ async function frame() {
     const map = d.tex === 'ART' ? texture(`art/${S.art[kind]}`) : texture(`sets/${set}/${d.tex}`);
     if (m.material.map !== map) { m.material.map = map; m.material.needsUpdate = true; }
     m.material.wireframe = S.wire;
-    m.position.set(0, cy, PZ); m.rotation.set(rad(rx), rad(ry), rad(d.rz)); m.renderOrder = i + 1; m.visible = true;
+    m.rotation.set(rad(rx), rad(ry), rad(d.rz));
+    if (d.off) { const ax = new THREE.Vector3(1, 0, 0).applyEuler(m.rotation); m.position.set(ax.x * d.off, cy + ax.y * d.off, PZ + ax.z * d.off); }
+    else m.position.set(0, cy, PZ);
+    m.renderOrder = i + 1; m.visible = true;
   });
   // camera: Vita framing at zoom 1, dollies toward the item as you zoom
   const z = S.zoom, ty = cy * clamp((z - 1) / 0.5, 0, 1); camera.position.set(0, ty, PZ + (-PZ) / z); camera.lookAt(0, ty, PZ);

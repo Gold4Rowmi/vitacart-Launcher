@@ -54,7 +54,7 @@ def main():
 
     kinds = sorted(k for k in F.LAYERS.keys())
     scene = {
-        "steps": int(F.GLOSS_STEPS), "grime": bool(F.GRIME),
+        "steps": int(F.GLOSS_STEPS), "grime": bool(F.GRIME), "shine": {k: float(F.SHINE[k]) for k in kinds if F.SHINE[k]}, "shineSpan": float(F.SHINE_SPAN),
         "half": {k: float(F.HALF[k]) for k in kinds},
         "yoff": {k: float(F.YOFF[k]) for k in kinds},
         "layers": {}, "labeldisc": {}, "sets": list(sets), "ref": [],
@@ -76,6 +76,7 @@ def main():
                 if Lr.side: e["side"] = Lr.side; e["back"] = bool(Lr.back)
                 if Lr.band: e["band"] = True
                 if Lr.grime: e["grime"] = True; e["back"] = bool(Lr.back)
+                if Lr.shine: e["shine"] = True
                 if F.DETAIL and F.DETAIL[Lr.name]: e["detail"] = True
                 if F.BACK_ONLY and F.BACK_ONLY[Lr.name]: e["backOnly"] = float(F.BACK_ONLY[Lr.name])
             layers.append(e)

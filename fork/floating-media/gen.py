@@ -626,7 +626,7 @@ def vita_card():
     fan(m_, white, zwell + 0.004, planar(wbb_, 0, 0.5, 0.70, 0.045))
     m_.write("float_vita_bands")
     variant_set("float_vita_gloss_arrow", lambda g, s: fan(g, arrow, zf + 0.002, planar(bb, s, 0.5, 0, 1)))
-    gloss_set("float_vita", lambda g, s: fan(g, sticker, zwell + 0.008, planar(sbb, s, 0.5, 0, 1)))
+    shine_quad("vita", 0.50, sbb[1] + 0.02, sbb[3] - 0.12, zwell + 0.008)   # travel 0.28 (index.lua FLOAT.SHINE)
 
     # ---------------------------------------------------------------- texture (1024 atlas)
     TEX = 1024
@@ -696,7 +696,7 @@ def ps1_disc():
     m.write("float_psx_band")
     m = Mesh(); ring(m, r_hole, R, T / 2, planar(bb, 0, 0.5, 0, 0.5), seg); m.write("float_psx_front")
     m = Mesh(); ring(m, r_li, r_lo, T / 2 + 0.003, planar(bb), seg); m.write("float_psx_label")
-    gloss_set("float_psx", lambda g, s: ring(g, r_li, r_lo, T / 2 + 0.007, planar(bb, s, 0.5, 0, 1), seg))
+    shine_quad("psx", 0.60, -0.62, 0.62, T / 2 + 0.007)   # travel 0.45
 
     img = Image.new("RGBA", (TEX, TEX), (0, 0, 0, 255))
     d = ImageDraw.Draw(img)
@@ -1048,7 +1048,7 @@ def psp_umd():
         uv = planar(bb, s, 0.5, 0, 1, mirror=True)
         slot_region(g, slot_h, x_end, R_open, zb - 0.002, uv)
     variant_set("float_psp_backrefl", back_overlay)
-    gloss_set("float_psp", lambda g, s: ring(g, r_lab, R_d, disc_zf + 0.010, planar(dbb, s, 0.5, 0, 1), seg))
+    shine_quad("psp", 0.60, -0.60, 0.60, disc_zf + 0.010)   # travel 0.45
 
     # ---------------------------------------------------------------- textures
     global TEX
@@ -1259,6 +1259,33 @@ def gloss_texture():
     Image.fromarray(img, "RGBA").filter(ImageFilter.GaussianBlur(1.0)).save(f"{OUT}/float_gloss.png")
 
 
+
+def shine_texture():
+    """One soft highlight that the Lua slides across the label: a wide gentle sheen with a
+    softer streak in it, fading out towards the top and bottom so the quad has no edges."""
+    import numpy as np
+    w, h = 256, 512
+    ys, xs = np.mgrid[0:h, 0:w].astype(np.float32)
+    u = (xs - w / 2) - (ys - h / 2) * 0.18
+    sheen = np.exp(-(u / (0.20 * w)) ** 2) * 0.26
+    streak = np.exp(-(u / (0.045 * w)) ** 2) * 0.34
+    v = ys / h
+    fade = np.clip(v / 0.16, 0, 1) * np.clip((1 - v) / 0.16, 0, 1)
+    fade = fade * fade * (3 - 2 * fade)
+    a = np.clip((sheen + streak) * fade, 0, 1)
+    img = np.zeros((h, w, 4), np.uint8)
+    img[..., :3] = 255
+    img[..., 3] = (a * 255).astype(np.uint8)
+    Image.fromarray(img, "RGBA").filter(ImageFilter.GaussianBlur(2.0)).save(f"{OUT}/float_shine.png")
+
+
+def shine_quad(kind, w, y0, y1, z):
+    """The sliding highlight: a quad w wide centred on x = 0 (the Lua moves it along the item's x)."""
+    m = Mesh()
+    m.quad(((-w / 2, y0, z), (0.0, 1.0)), ((w / 2, y0, z), (1.0, 1.0)), ((w / 2, y1, z), (1.0, 0.0)), ((-w / 2, y1, z), (0.0, 0.0)))
+    m.write(f"float_{kind}_shine")
+
+
 if __name__ == "__main__":
     hv, offv = vita_card()
     hp = ps1_disc()
@@ -1270,5 +1297,6 @@ if __name__ == "__main__":
     shade_texture()
     glass_texture()
     grime_texture()
+    shine_texture()
     print(f"half heights: vita={hv:.3f} (offset {offv:+.3f}) psx={hp:.3f} psp={hu:.3f} (psp centre offset {off:+.3f})")
     print(len(os.listdir(OUT)), "files")
