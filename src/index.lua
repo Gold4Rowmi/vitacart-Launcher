@@ -14255,10 +14255,15 @@ end
 function FLOAT.draw_preview(kind, px, py, pz, ry)
     FLOAT.update()
     local m = FLOAT.media[kind]
-    if not m or not FLOAT.sel_icon then return false end
+    -- use the item's live cover image (as set_cover_image does), never a cached handle: covers
+    -- are freed and reloaded around the options menu and a dead image crashes the renderer
+    local cat = xCatLookup(showCat)
+    local file = cat and cat[p]
+    local icon = file and (file.ricon or file.icon)
+    if not m or not icon then return false end
     local _, _, rx, fry, rz = FLOAT.offsets(0, 0)
-    FLOAT.draw_layers(kind, FLOAT.sel_icon, FLOAT.sel_disc, px, py + FLOAT.HALF[kind] + FLOAT.YOFF[kind] + 0.1, pz, rx, ry + fry, rz, false)
-    return true
+    local ok = pcall(FLOAT.draw_layers, kind, icon, file.float_disc, px, py + FLOAT.HALF[kind] + FLOAT.YOFF[kind] + 0.1, pz, rx, ry + fry, rz, false)
+    return ok
 end
 -- ==========================================================================
 
