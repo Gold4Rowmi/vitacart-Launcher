@@ -54,7 +54,7 @@ def main():
 
     kinds = sorted(k for k in F.LAYERS.keys())
     scene = {
-        "steps": int(F.GLOSS_STEPS), "grime": bool(F.GRIME), "shine": {k: float(F.SHINE[k]) for k in kinds if F.SHINE[k]}, "shineSpan": float(F.SHINE_SPAN),
+        "steps": int(F.GLOSS_STEPS), "grime": bool(F.GRIME), "shine": {k: float(F.SHINE[k]) for k in kinds if F.SHINE[k]}, "shineSpan": float(F.SHINE_SPAN), "reflectOn": bool(F.REFLECT), "reflfade": {"obj": "float_floor.obj", "tex": "float_floor.png"},
         "half": {k: float(F.HALF[k]) for k in kinds},
         "yoff": {k: float(F.YOFF[k]) for k in kinds},
         "layers": {}, "labeldisc": {}, "sets": list(sets), "ref": [],
@@ -82,6 +82,8 @@ def main():
             layers.append(e)
         scene["layers"][k] = layers
         if m.labeldisc: scene["labeldisc"][k] = os.path.basename(m.labeldisc.path)
+        if m.reflect:
+            scene.setdefault("reflect", {})[k] = [{"name": m.reflect[i].name, "obj": os.path.basename(m.reflect[i].obj.path), "tex": os.path.basename(m.reflect[i].obj.tex)} for i in range(1, len(m.reflect) + 1)]
 
     # reference draw lists straight from the Lua, for the page's self-check
     for k in kinds:

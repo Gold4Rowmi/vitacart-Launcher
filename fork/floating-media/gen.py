@@ -1210,9 +1210,14 @@ def shadow():
     w, dpt = 1.0, 0.55
     m.quad(((-w, 0, -dpt), (0, 0)), ((w, 0, -dpt), (1, 0)), ((w, 0, dpt), (1, 1)), ((-w, 0, dpt), (0, 1)))
     m.write("float_shadow")
+    # contact shadow: a tight dark core where the item meets the floor plus a wide soft halo
     img = Image.new("RGBA", (128, 128), (0, 0, 0, 0))
-    ImageDraw.Draw(img).ellipse([18, 34, 110, 94], fill=(0, 0, 0, 150))
-    img.filter(ImageFilter.GaussianBlur(12)).save(f"{OUT}/float_shadow.png")
+    ImageDraw.Draw(img).ellipse([14, 40, 114, 88], fill=(0, 0, 0, 90))
+    img = img.filter(ImageFilter.GaussianBlur(16))
+    core = Image.new("RGBA", (128, 128), (0, 0, 0, 0))
+    ImageDraw.Draw(core).ellipse([30, 56, 98, 72], fill=(0, 0, 0, 170))
+    img.alpha_composite(core.filter(ImageFilter.GaussianBlur(5)))
+    img.save(f"{OUT}/float_shadow.png")
 
 
 def sheen_texture():
@@ -1285,6 +1290,48 @@ def shine_quad(kind, w, y0, y1, z):
     m.write(f"float_{kind}_shine")
 
 
+
+REFLECT = { "vita": ["front", "well", "label", "bands", "bandR", "bandT", "bandL", "bandB"],
+            "psp": ["shellfront", "shellfrontbevel", "label", "hub", "glass", "bandR", "bandT", "bandL", "bandB"],
+            "psx": ["front", "label", "band"] }
+
+
+def mirror_meshes():
+    """Floor-reflection copies: the same meshes with y negated (float_<kind>_r_<name>.obj). The Lua
+    draws them below the floor line with the pitch and roll negated, so they mirror the item."""
+    n = 0
+    for kind, names in REFLECT.items():
+        for name in names:
+            src = f"{OUT}/float_{kind}_{name}.obj"
+            if not os.path.exists(src):
+                continue
+            out = []
+            for line in open(src):
+                p = line.split()
+                if p and p[0] == "v":
+                    out.append(f"v {p[1]} {-float(p[2]):.4f} {p[3]}\n")
+                else:
+                    out.append(line)
+            open(f"{OUT}/float_{kind}_r_{name}.obj", "w").writelines(out)
+            n += 1
+    return n
+
+
+def reflection_fade():
+    """Viewer-side copy of RetroFlow's floor plane (planefloor.obj + floor.png): a huge horizontal
+    plane at the floor line with a translucent black band that dims the reflections. On the
+    Vita the Lua draws RetroFlow's own modFloor instead."""
+    m = Mesh()
+    m.quad(((-21.12, 0, 12.83), (0.0, 0.0)), ((21.12, 0, 12.83), (1.0, 0.0)), ((21.12, 0, -12.83), (1.0, 1.0)), ((-21.12, 0, -12.83), (0.0, 1.0)))
+    m.write("float_floor")
+    import numpy as np
+    img = np.zeros((64, 64, 4), np.uint8)
+    v = np.linspace(0, 1, 64)[:, None]
+    a = 77 * np.clip(np.minimum(v / 0.22, (1 - v) / 0.22), 0, 1)
+    img[..., 3] = a.astype(np.uint8)
+    Image.fromarray(img, "RGBA").save(f"{OUT}/float_floor.png")
+
+
 if __name__ == "__main__":
     hv, offv = vita_card()
     hp = ps1_disc()
@@ -1297,5 +1344,7 @@ if __name__ == "__main__":
     glass_texture()
     grime_texture()
     shine_texture()
+    reflection_fade()
+    print(mirror_meshes(), "reflection meshes")
     print(f"half heights: vita={hv:.3f} (offset {offv:+.3f}) psx={hp:.3f} psp={hu:.3f} (psp centre offset {off:+.3f})")
     print(len(os.listdir(OUT)), "files")

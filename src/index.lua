@@ -13921,7 +13921,11 @@ FLOAT = {
     BACK_ONLY = { backcuts = 0.5, backetch = -0.05 },    -- pocket floors also show from the side
     GRIME = false,         -- wear overlay (dust, fingerprints, scuffs); off, judged too dirty
     SHINE = { vita = 0.10, psp = 0.14, psx = 0.14 },   -- how far the soft label sheen drifts (model units) at full yaw
-    SHINE_SPAN = 40,       -- degrees of yaw for the full slide   -- layer -> facing threshold (see draw_layers)
+    SHINE_SPAN = 40,       -- degrees of yaw for the full slide
+    REFLECT = true,        -- floor reflection under the selected item
+    REFLECT_LAYERS = { vita = { "front", "well", "label", "bands", "bandR", "bandT", "bandL", "bandB" },
+                       psp = { "shellfront", "shellfrontbevel", "label", "hub", "glass", "bandR", "bandT", "bandL", "bandB" },
+                       psx = { "front", "label", "band" } },   -- layer -> facing threshold (see draw_layers)
     HALF = { vita = 0.949, psp = 0.956, psx = 0.925 },
     YOFF = { vita = 0, psp = 0.018, psx = 0 },
     LAYERS = {
@@ -13978,6 +13982,7 @@ function FLOAT.load_assets()
     Graphics.setImageFilters(FLOAT.grime_img, FILTER_LINEAR, FILTER_LINEAR)
     FLOAT.shine_img = Graphics.loadImage("app0:/DATA/float_shine.png")
     Graphics.setImageFilters(FLOAT.shine_img, FILTER_LINEAR, FILTER_LINEAR)
+
     for kind, names in pairs(FLOAT.LAYERS) do
         local m = { layers = {}, gloss = {} }
         m.body_img = Graphics.loadImage("app0:/DATA/float_" .. kind .. "_body.png")
@@ -14019,6 +14024,12 @@ function FLOAT.load_assets()
         end
         if kind == "psp" then
             m.labeldisc = Render.loadObject("app0:/DATA/float_psp_labeldisc.obj", imgCoverTmp)
+        end
+        -- floor reflection: mirrored copies of the base layers (glass layers use the glass image)
+        m.reflect = {}
+        for _, name in ipairs(FLOAT.REFLECT_LAYERS[kind] or {}) do
+            local img = (name == "glass") and FLOAT.glass_img or (name == "label" and imgCoverTmp or m.body_img)
+            table.insert(m.reflect, { name = name, obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_r_" .. name .. ".obj", img) })
         end
         FLOAT.media[kind] = m
     end
@@ -14183,7 +14194,18 @@ function FLOAT.sheen_angle(rx, ry)
 end
 
 function FLOAT.draw_shadow(px, py, pz, ry)
-    Render.drawModel(FLOAT.shadow, px, py + 0.003, pz, 0, ry, 0)
+    Render.drawModel(FLOAT.shadow, px, py - 0.002, pz, 0, ry, 0)   -- just under the floor plane so it is dimmed with the reflection
+end
+
+-- Mirror image of the item in the floor (y = py), fading out with distance from the floor line
+function FLOAT.draw_reflection(kind, icon, px, py, cy, pz, rx, ry, rz)
+    local m = FLOAT.media[kind]
+    if not m.reflect then return end
+    local ry_ = 2 * py - cy
+    for _, L in ipairs(m.reflect) do
+        if L.name == "label" then Render.useTexture(L.obj, icon) end
+        Render.drawModel(L.obj, px, ry_, pz, -rx, ry, -rz)
+    end
 end
 
 -- Draw one item's layers at a pose; order flips when its back faces the camera
@@ -14265,6 +14287,7 @@ function FLOAT.draw_media(kind, icon, px, py, pz, fy, rx, ry, rz, side, cur_p)
     if side < 0.5 then FLOAT.sel_icon, FLOAT.sel_disc = icon, disc_label end
     FLOAT.draw_shadow(px, py, pz, ry)
     local cy = py + FLOAT.HALF[kind] + FLOAT.YOFF[kind] + fy
+    if FLOAT.REFLECT and side < 0.5 then FLOAT.draw_reflection(kind, icon, px, py, cy, pz, rx, ry, rz) end
     FLOAT.draw_layers(kind, icon, disc_label, px, cy, pz, rx, ry, rz, side < 0.5)
 end
 
@@ -14707,6 +14730,10 @@ function FLOAT.flush()
         -- cover image: a dead image raises "wrong memory block type", so skip this frame instead
         local ok = pcall(FLOAT.draw_cover_real, d[1], d[2], d[3], d[4], d[5], d[6], d[7])
         if not ok then FLOAT.sel_icon = nil end
+    end
+    -- RetroFlow's own translucent floor plane over the reflections, as its reflection mode does
+    if FLOAT.REFLECT and modFloor and showView and showView <= 4 then
+        Render.drawModel(modFloor, 0, -0.6 + (floorY or 0), 0, 0, 0, 0)
     end
 end
 
