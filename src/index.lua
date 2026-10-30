@@ -14057,9 +14057,11 @@ function FLOAT.label_path(file)
         hit = false
         -- printed-look copy made by fork/floating-media/print_covers.py (Float's own folder)
         local printed = path:gsub("^ux0:/data/RetroFlow/COVERS/", "ux0:/data/RetroFlowFloat/PRINT/COVERS/"):gsub("%.jpg$", ".png")
-        if file.app_type == 2 then
-            local alt_p = printed:gsub("%.png$", "_umd.png")
-            local alt = path:gsub("%.png$", "_umd.png")
+        -- real disc art: "<id>_umd.png" (PSP) or "<id>_disc.png" (PS1) next to the cover or in PRINT
+        local suffix = (file.app_type == 2 and "_umd.png") or (file.app_type == 3 and "_disc.png") or nil
+        if suffix then
+            local alt_p = printed:gsub("%.png$", suffix)
+            local alt = path:gsub("%.png$", suffix)
             if alt_p ~= printed and System.doesFileExist(alt_p) then hit = { alt_p, true }
             elseif alt ~= path and System.doesFileExist(alt) then hit = { alt, true } end
         end
