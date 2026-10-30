@@ -1355,11 +1355,11 @@ def shadow_set(kind, outline, T):
     sx, sy = (n * (1 - 2 * margin)) / w, (n * (1 - 2 * margin)) / h
     sc = min(sx, sy)
     pts = [(n / 2 + (x - cx_) * sc, n / 2 - (y - cy_) * sc) for x, y in outline]
-    ImageDraw.Draw(img).polygon(pts, fill=(0, 0, 0, 150))
-    img = img.filter(ImageFilter.GaussianBlur(9))
+    ImageDraw.Draw(img).polygon(pts, fill=(0, 0, 0, 110))
+    img = img.filter(ImageFilter.GaussianBlur(16))
     core = Image.new("RGBA", (n, n), (0, 0, 0, 0))
-    ImageDraw.Draw(core).polygon([(n / 2 + (x - cx_) * sc * 0.8, n / 2 - (y - cy_) * sc * 0.8) for x, y in outline], fill=(0, 0, 0, 90))
-    img.alpha_composite(core.filter(ImageFilter.GaussianBlur(16)))
+    ImageDraw.Draw(core).polygon([(n / 2 + (x - cx_) * sc * 0.8, n / 2 - (y - cy_) * sc * 0.8) for x, y in outline], fill=(0, 0, 0, 70))
+    img.alpha_composite(core.filter(ImageFilter.GaussianBlur(22)))
     img.save(f"{OUT}/float_{kind}_shadow.png")
     ext_x = (n / 2) / sc          # half extent of the quad in model units (texture edge to edge)
     for k in range(SHADOW_STEPS):
