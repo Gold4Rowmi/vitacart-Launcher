@@ -671,6 +671,8 @@ def vita_card():
     # bands: blue PS VITA strip (rows 0.56..0.67) with the traced white wordmark, white serial strip (0.70..0.745)
     bx0, by0, bx1, by1 = 0, int(0.56 * TEX), TEX // 2, int(0.67 * TEX)
     vgrad(d, (bx0, by0, bx1, by1), (18, 92, 170), (10, 70, 150))
+    for k, col in enumerate(((225, 236, 250), (150, 185, 230), (70, 125, 200), (34, 100, 180))):   # the sticker's top edge catches the light
+        d.line([(bx0, by0 + k), (bx1, by0 + k)], fill=col + (255,))
     vtrace_fill(img, VT["psvita"], front, px_of(bbb, 0, 0.56, 0.5, 0.11), (246, 248, 252))
     wy0, wy1 = int(0.70 * TEX), int(0.745 * TEX)
     d.rectangle([bx0, wy0, bx1, wy1], fill=(241, 242, 245, 255))
