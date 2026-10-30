@@ -4561,7 +4561,7 @@ wallpaper_table_default =
 
 -- Scan wallpaper folder for settings
 local wallpaper_table_scanned = {}
--- FLOATING PHYSICAL MEDIA (fork): RetroFlow Float also scans its own wallpaper folder
+-- RetroFlow Float (fork): also scans its own wallpaper folder
 for _, wp_dir in ipairs({ "ux0:/data/RetroFlow/WALLPAPER/", "ux0:/data/RetroFlowFloat/WALLPAPER/" }) do
 files_wallpaper = System.listDirectory(wp_dir) or {}
 for i, file in pairs(files_wallpaper) do
@@ -13897,19 +13897,20 @@ FLOAT = {
     FLICK_MAX = 900,       -- deg/s carried into the spring on release
     GRAB_W = 170, GRAB_Y0 = 40, GRAB_Y1 = 440,  -- touch area of the selected item
     GLOSS_STEPS = 24,   -- highlight positions per view-dependent overlay set
-    BACK_ONLY = { backcuts = 0.5, backetch = -0.05 },    -- pocket floors also show from the side   -- layer -> facing threshold (see draw_layers)
+    BACK_ONLY = { backcuts = 0.5, backetch = -0.05 },    -- pocket floors also show from the side
+    GRIME = true,          -- wear overlay (dust, fingerprints, scuffs) on the selected item   -- layer -> facing threshold (see draw_layers)
     HALF = { vita = 0.949, psp = 0.956, psx = 0.925 },
     YOFF = { vita = 0, psp = 0.018, psx = 0 },
     LAYERS = {
         -- pocket walls are listed before the floors: drawn after them when the back faces the camera
-        vita = { "backgloss_marks", "wallbackR", "wallbackT", "wallbackL", "wallbackB", "backgloss_pins", "backcuts", "back",
-                 "bandR", "bandT", "bandL", "bandB", "front", "well", "label", "bands", "gloss_arrow", "gloss" },
+        vita = { "backgrime", "backgloss_marks", "wallbackR", "wallbackT", "wallbackL", "wallbackB", "backgloss_pins", "backcuts", "back",
+                 "bandR", "bandT", "bandL", "bandB", "front", "well", "label", "bands", "gloss_arrow", "gloss", "grime" },
         psx = { "sheen", "back", "band", "front", "label", "gloss" },
         -- "back..." overlays belong to the back face: drawn only when it faces the camera
-        psp = { "backrefl", "slotrim", "backetch", "backglass", "wallbackR", "wallbackT", "wallbackL", "wallbackB",
+        psp = { "backgrime", "backrefl", "slotrim", "backetch", "backglass", "wallbackR", "wallbackT", "wallbackL", "wallbackB",
                 "backcuts", "shellback", "shellbackbevel", "sheen", "discback", "bandR", "bandT", "bandL", "bandB",
                 "label", "hub", "glass", "wallR", "wallT", "wallL", "wallB",
-                "shellfront", "shellfrontbevel", "shade", "refl", "gloss" },
+                "shellfront", "shellfrontbevel", "shade", "refl", "gloss", "grime" },
     },
 
     -- State
@@ -13950,6 +13951,8 @@ function FLOAT.load_assets()
     FLOAT.VARIANT_TEX = { gloss = FLOAT.gloss_img, refl = FLOAT.env_img, shade = FLOAT.shade_img }
     FLOAT.glass_img = Graphics.loadImage("app0:/DATA/float_glass.png")
     Graphics.setImageFilters(FLOAT.glass_img, FILTER_LINEAR, FILTER_LINEAR)
+    FLOAT.grime_img = Graphics.loadImage("app0:/DATA/float_grime.png")
+    Graphics.setImageFilters(FLOAT.grime_img, FILTER_LINEAR, FILTER_LINEAR)
     for kind, names in pairs(FLOAT.LAYERS) do
         local m = { layers = {}, gloss = {} }
         m.body_img = Graphics.loadImage("app0:/DATA/float_" .. kind .. "_body.png")
@@ -13964,6 +13967,9 @@ function FLOAT.load_assets()
                 end
                 if name == "gloss" then m.gloss = set end
                 table.insert(m.layers, { name = name, set = set, back = vname ~= name })
+            elseif name == "grime" or name == "backgrime" then
+                table.insert(m.layers, { name = name, grime = true, back = name == "backgrime",
+                    obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_" .. name .. ".obj", FLOAT.grime_img) })
             elseif name == "glass" or name == "backglass" then
                 table.insert(m.layers, { name = name, obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_" .. name .. ".obj", FLOAT.glass_img) })
             elseif name:match("^band%u$") then
@@ -14150,7 +14156,7 @@ end
 -- (view-dependent overlays, pocket floors and walls, bevels, rims, window glass) to keep
 -- the draw count per frame down.
 FLOAT.DETAIL = { slotrim = true, backetch = true, backglass = true, backcuts = true, shellbackbevel = true,
-                 shellfrontbevel = true, glass = true, well = false }
+                 shellfrontbevel = true, glass = true, well = false, grime = true, backgrime = true }
 function FLOAT.draw_layers(kind, icon, disc_label, px, cy, pz, rx, ry, rz, with_gloss)
     local m = FLOAT.media[kind]
     local facing = math.cos(math.rad(ry)) * math.cos(math.rad(rx))
@@ -14161,6 +14167,8 @@ function FLOAT.draw_layers(kind, icon, disc_label, px, cy, pz, rx, ry, rz, with_
         local L = m.layers[facing >= 0 and i or (n + 1 - i)]
         if not with_gloss and (L.set or L.side or FLOAT.DETAIL[L.name] or FLOAT.BACK_ONLY[L.name]) then
             -- neighbour: base layers only
+        elseif L.grime then
+            if FLOAT.GRIME and (L.back == (facing < 0)) then Render.drawModel(L.obj, px, cy, pz, rx, ry, rz) end
         elseif L.band then
             local sy, sx = math.sin(math.rad(ry)), math.sin(math.rad(rx))
             local near = (L.side == "R" and sy < -0.03) or (L.side == "L" and sy > 0.03)

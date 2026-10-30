@@ -372,6 +372,77 @@ def bake_light(img, box, layers, light=(-0.7, -0.75), k=14.0, ao=0.55, blur=2.5,
     img.paste(Image.fromarray(region.astype(np.uint8), "RGBA"), (x0, y0))
 
 
+def grime_texture():
+    """Wear overlay atlas (RGBA, alpha only where there is something): four 512 regions,
+    vita front / vita back / psp front / psp back. Dust and lint, a couple of faint
+    fingerprints, hairline scuffs, lighter wear along the edges, dark grime in corners."""
+    import numpy as np
+    n = 1024
+    rng = np.random.default_rng(11)
+    img = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+    for ri, (ox, oy) in enumerate(((0, 0), (512, 0), (0, 512), (512, 512))):
+        layer = Image.new("RGBA", (512, 512), (0, 0, 0, 0))
+        d = ImageDraw.Draw(layer)
+        # fingerprints: concentric ridge arcs inside an ellipse, very faint, lighter (skin oil)
+        for _ in range(2):
+            cx, cy = rng.uniform(120, 392), rng.uniform(120, 392)
+            rx, ry = rng.uniform(55, 80), rng.uniform(70, 100)
+            ang = rng.uniform(0, 180)
+            fp = Image.new("RGBA", (int(rx * 2.4), int(ry * 2.4)), (0, 0, 0, 0))
+            fd = ImageDraw.Draw(fp)
+            c = (fp.size[0] / 2, fp.size[1] / 2)
+            for k in range(2, int(min(rx, ry) / 3)):
+                r = k * 3.0 + rng.uniform(-0.6, 0.6)
+                e = min(1.0, (1 - r / min(rx, ry)) * 1.4)
+                a = int(28 * max(0.0, e) * rng.uniform(0.4, 1.0))
+                fd.ellipse([c[0] - r * rx / min(rx, ry), c[1] - r * ry / min(rx, ry), c[0] + r * rx / min(rx, ry), c[1] + r * ry / min(rx, ry)],
+                           outline=(235, 235, 240, a), width=1)
+            fp = fp.rotate(ang, resample=Image.BICUBIC, expand=True).filter(ImageFilter.GaussianBlur(0.6))
+            layer.alpha_composite(fp, (int(cx - fp.size[0] / 2), int(cy - fp.size[1] / 2)))
+        # hairline scuffs
+        for _ in range(int(rng.integers(14, 24))):
+            x0, y0 = rng.uniform(20, 492), rng.uniform(20, 492)
+            ln, an = rng.uniform(8, 60), rng.uniform(0, math.pi)
+            a = int(rng.uniform(40, 110))
+            d.line([(x0, y0), (x0 + ln * math.cos(an), y0 + ln * math.sin(an))], fill=(250, 250, 252, a), width=1)
+        for _ in range(3):   # a few longer, fainter
+            x0, y0 = rng.uniform(40, 472), rng.uniform(40, 472)
+            ln, an = rng.uniform(80, 200), rng.uniform(0, math.pi)
+            d.line([(x0, y0), (x0 + ln * math.cos(an), y0 + ln * math.sin(an))], fill=(250, 250, 252, 45), width=1)
+        # dust and lint
+        for _ in range(int(rng.integers(90, 140))):
+            x, y = rng.uniform(0, 512), rng.uniform(0, 512)
+            r = rng.uniform(0.5, 1.6)
+            a = int(rng.uniform(70, 170))
+            col = (240, 240, 244, a) if rng.random() < 0.7 else (60, 58, 56, a // 2)
+            d.ellipse([x - r, y - r, x + r, y + r], fill=col)
+        for _ in range(6):   # lint fibres
+            x0, y0 = rng.uniform(0, 512), rng.uniform(0, 512)
+            pts = [(x0, y0)]
+            for k in range(5):
+                pts.append((pts[-1][0] + rng.uniform(-6, 6), pts[-1][1] + rng.uniform(-6, 6)))
+            d.line(pts, fill=(245, 245, 248, 120), width=1)
+        # dark grime drifting in from the corners, lighter wear along the edges
+        gr = Image.new("RGBA", (512, 512), (0, 0, 0, 0))
+        gd = ImageDraw.Draw(gr)
+        for (cx, cy) in ((0, 0), (512, 0), (0, 512), (512, 512)):
+            gd.ellipse([cx - 90, cy - 90, cx + 90, cy + 90], fill=(40, 36, 30, 34))
+        gr = gr.filter(ImageFilter.GaussianBlur(26))
+        wear = Image.new("RGBA", (512, 512), (0, 0, 0, 0))
+        ImageDraw.Draw(wear).rectangle([6, 6, 505, 505], outline=(255, 255, 255, 26), width=10)
+        wear = wear.filter(ImageFilter.GaussianBlur(7))
+        layer.alpha_composite(gr)
+        layer.alpha_composite(wear)
+        img.alpha_composite(layer, (ox, oy))
+    img.save(f"{OUT}/float_grime.png")
+
+
+def grime_meshes(kind, outline, bb, zf, zb, region_front, region_back):
+    """Front and back wear overlays as outline fans, mapped to their grime atlas regions."""
+    m = Mesh(); fan(m, outline, zf + 0.005, planar(bb, *region_front)); m.write(f"float_{kind}_grime")
+    m = Mesh(); fan(m, outline, zb - 0.005, planar(bb, *region_back, mirror=True)); m.write(f"float_{kind}_backgrime")
+
+
 # ================================================================== PS VITA CARD (traced)
 VTRACE = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "vita_trace.json")))
 VT = dict(shell=40, well=41, white=42, blue=43, art=44, arrow=45, psvita=range(46, 52),
@@ -542,6 +613,7 @@ def vita_card():
     # --- front
     m_ = Mesh(); face_with_holes(m_, outline, [well], zf, A); m_.write("float_vita_front")
     m_ = Mesh(); fan(m_, well, zwell, A); band(m_, well, zwell, zf, 0.5, 0.5, 0.988, 0.962); m_.write("float_vita_well")
+    grime_meshes("vita", outline, bb, zf, zb, (0, 0.5, 0, 0.5), (0.5, 0.5, 0, 0.5))
     # label: the cover art, cropped to the art window's aspect (covers are taller than wide)
     aw, ah = abb[2] - abb[0], abb[3] - abb[1]
     cover_aspect = 250 / 320
@@ -963,6 +1035,7 @@ def psp_umd():
     m = Mesh(); fan(m, circle(r_stick, 48), disc_zf + 0.002, planar((-r_stick, -r_stick, r_stick, r_stick), 0.52, 0.22, 0.52, 0.22)); m.write("float_psp_hub")
     m = Mesh(); ring_to_outline(m, R_open, inner, zf, A, seg * 2); m.write("float_psp_shellfront")
     m = Mesh(); strip(m, inner, zf, outline, zf - bev, 0.5, 0.5, 0.78, 0.82); m.write("float_psp_shellfrontbevel")
+    grime_meshes("psp", outline, bb, zf, zb, (0, 0.5, 0.5, 0.5), (0.5, 0.5, 0.5, 0.5))
     # overlays: clear window over the disc + the whole shell front, planar UV window (yaw-shifted)
     def overlay(g, s, z_add, scale_v=1.0):
         # only the clear window reflects; the white shell around it is matte plastic
@@ -1196,5 +1269,6 @@ if __name__ == "__main__":
     env_texture()
     shade_texture()
     glass_texture()
+    grime_texture()
     print(f"half heights: vita={hv:.3f} (offset {offv:+.3f}) psx={hp:.3f} psp={hu:.3f} (psp centre offset {off:+.3f})")
     print(len(os.listdir(OUT)), "files")

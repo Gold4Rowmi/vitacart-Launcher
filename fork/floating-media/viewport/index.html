@@ -74,6 +74,7 @@ summary small { color: var(--fg-dim); font-weight: 400; margin-left: 6px; }
   <button class="btn" id="b-spin" aria-pressed="false">Spin</button>
   <button class="btn" id="b-idle" aria-pressed="false">Float</button>
   <button class="btn" id="b-gloss" aria-pressed="true">Selected</button>
+  <button class="btn" id="b-grime" aria-pressed="true">Grime</button>
   <button class="btn" id="b-wire" aria-pressed="false">Wire</button>
   <button class="btn" id="b-disc" aria-pressed="false" hidden>Disc label</button>
   <button class="btn" id="b-ab" hidden>Hold: compare</button>
@@ -120,7 +121,7 @@ const FLOOR = -0.6, PZ = -4.7, FY = 0.22;      // selected slot in RetroFlow's d
 
 // ---- the Lua FLOAT.draw_layers, ported ---------------------------------------------------
 function sheenAngle(rx, ry) { return deg(Math.atan2(Math.sin(rad(rx)), Math.sin(rad(ry)) + 1e-6)) + ry * 0.6; }
-function drawList(kind, disc, rx, ry, rz, withGloss) {
+function drawList(kind, disc, rx, ry, rz, withGloss, grimeOn = scene.grime) {
   const m = scene.layers[kind], n = m.length, out = [];
   const facing = Math.cos(rad(ry)) * Math.cos(rad(rx));
   const labelLayer = m.find(L => L.name === 'label');
@@ -130,6 +131,8 @@ function drawList(kind, disc, rx, ry, rz, withGloss) {
     const L = m[facing >= 0 ? i - 1 : n - i];
     if (!withGloss && (L.set || L.side || L.detail || L.backOnly !== undefined)) {
       // neighbour: base layers only
+    } else if (L.grime) {
+      if (grimeOn && (L.back === (facing < 0))) out.push({ obj: L.obj, tex: L.tex, rz, layer: L.name });
     } else if (L.band) {
       const sy = Math.sin(rad(ry)), sx = Math.sin(rad(rx));
       const near = (L.side === 'R' && sy < -0.03) || (L.side === 'L' && sy > 0.03) || (L.side === 'B' && sx < -0.03) || (L.side === 'T' && sx > 0.03);
@@ -221,13 +224,13 @@ async function mesh(set, obj) {
 }
 
 // ---- state ---------------------------------------------------------------------------------
-const S = { kind: 'vita', set: scene.sets[0], rx: 0, ry: 0, zoom: 1, gloss: true, wire: false, spin: false, idle: false, disc: false,
+const S = { kind: 'vita', set: scene.sets[0], rx: 0, ry: 0, zoom: 1, gloss: true, grime: true, wire: false, spin: false, idle: false, disc: false,
   art: { vita: scene.art.vita[0], psp: scene.art.psp[0], psx: scene.art.psx[0] }, bg: scene.art.bg.includes('bg_studio.png') ? 'bg_studio.png' : scene.art.bg[0],
   hidden: { vita: new Set(), psp: new Set(), psx: new Set() } };
 try { Object.assign(S, JSON.parse(localStorage.getItem('fmv') || '{}'), { hidden: S.hidden }); } catch (e) {}
 if (!scene.sets.includes(S.set)) S.set = scene.sets[0];
 const hashKind = location.hash.replace('#', ''); if (KINDS.includes(hashKind)) S.kind = hashKind;   // #vita #psp #psx open that media
-const save = () => { try { localStorage.setItem('fmv', JSON.stringify({ kind: S.kind, set: S.set, rx: S.rx, ry: S.ry, zoom: S.zoom, gloss: S.gloss, art: S.art, bg: S.bg })); } catch (e) {} };
+const save = () => { try { localStorage.setItem('fmv', JSON.stringify({ kind: S.kind, set: S.set, rx: S.rx, ry: S.ry, zoom: S.zoom, gloss: S.gloss, grime: S.grime, art: S.art, bg: S.bg })); } catch (e) {} };
 
 // ---- renderer ----------------------------------------------------------------------------
 const stage = $('stage');
@@ -251,7 +254,7 @@ async function frame() {
     fy = 0.22 + Math.sin(t * 1.7) * 0.045; rx += Math.sin(t * 1.1) * 1.5; ry += Math.sin(t * 0.8) * 6; rz = Math.sin(t * 1.3) * 1.2;
   }
   const cy = FLOOR + scene.half[kind] + scene.yoff[kind] + fy;
-  const list = drawList(kind, S.disc && !!scene.labeldisc[kind], rx, ry, rz, S.gloss).filter(d => !S.hidden[kind].has(d.layer));
+  const list = drawList(kind, S.disc && !!scene.labeldisc[kind], rx, ry, rz, S.gloss, S.grime).filter(d => !S.hidden[kind].has(d.layer));
   const wanted = new Set();
   const meshes = await Promise.all(list.map(d => mesh(set, d.obj)));
   const sh = await mesh(set, scene.shadow.obj);
@@ -332,7 +335,7 @@ if (scene.sets.length > 1) {
   ab.onpointerdown = down; ab.onpointerup = ab.onpointercancel = ab.onpointerleave = up;
 }
 const toggle = (id, key) => { const b = $(id); b.setAttribute('aria-pressed', String(S[key])); b.onclick = () => { S[key] = !S[key]; b.setAttribute('aria-pressed', String(S[key])); save(); }; };
-toggle('b-spin', 'spin'); toggle('b-idle', 'idle'); toggle('b-gloss', 'gloss'); toggle('b-wire', 'wire'); toggle('b-disc', 'disc');
+toggle('b-spin', 'spin'); toggle('b-idle', 'idle'); toggle('b-gloss', 'gloss'); toggle('b-grime', 'grime'); toggle('b-wire', 'wire'); toggle('b-disc', 'disc');
 const pose = (rx, ry) => { S.rx = rx; S.ry = ry; S.spin = false; $('b-spin').setAttribute('aria-pressed', 'false'); $('pitch').value = rx; $('yaw').value = ry; save(); };
 $('b-front').onclick = () => pose(0, 0); $('b-back').onclick = () => pose(0, 180); $('b-edge').onclick = () => pose(0, 80);
 $('zoom').oninput = e => { S.zoom = +e.target.value; $('zoom-v').textContent = S.zoom.toFixed(2) + 'x'; save(); };
