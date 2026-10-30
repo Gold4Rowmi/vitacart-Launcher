@@ -14660,7 +14660,10 @@ function FLOAT.flush()
     local d = FLOAT.deferred
     if d then
         FLOAT.deferred = nil
-        FLOAT.draw_cover_real(d[1], d[2], d[3], d[4], d[5], d[6], d[7])
+        -- the list may have changed (unhide, rescan) between the deferral and now, freeing the
+        -- cover image: a dead image raises "wrong memory block type", so skip this frame instead
+        local ok = pcall(FLOAT.draw_cover_real, d[1], d[2], d[3], d[4], d[5], d[6], d[7])
+        if not ok then FLOAT.sel_icon = nil end
     end
 end
 
