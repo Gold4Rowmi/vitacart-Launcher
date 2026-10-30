@@ -13920,7 +13920,7 @@ FLOAT = {
     GLOSS_STEPS = 24,   -- highlight positions per view-dependent overlay set
     BACK_ONLY = { backcuts = 0.5, backetch = -0.05 },    -- pocket floors also show from the side
     GRIME = false,         -- wear overlay (dust, fingerprints, scuffs); off, judged too dirty
-    SHINE = { vita = 0.28, psp = 0.45, psx = 0.45 },   -- how far the label highlight slides (model units) at full yaw
+    SHINE = { vita = 0.10, psp = 0.14, psx = 0.14 },   -- how far the soft label sheen drifts (model units) at full yaw
     SHINE_SPAN = 40,       -- degrees of yaw for the full slide   -- layer -> facing threshold (see draw_layers)
     HALF = { vita = 0.949, psp = 0.956, psx = 0.925 },
     YOFF = { vita = 0, psp = 0.018, psx = 0 },
