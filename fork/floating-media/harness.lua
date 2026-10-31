@@ -8,7 +8,7 @@ local touch_x, touch_y = nil, nil
 
 Timer = { new = function() return {} end, getTime = function() return now_ms end }
 FILTER_LINEAR = 1
-Graphics = { loadImage = function(p) return p end, setImageFilters = function() end }
+Graphics = { loadImage = function(p) return p end, setImageFilters = function() end, getImageWidth = function() return 0 end, getImageHeight = function() return 0 end }
 Render = {
     loadObject = function(path, img) return { path = path, tex = img } end,
     useTexture = function(m, img) m.tex = img end,

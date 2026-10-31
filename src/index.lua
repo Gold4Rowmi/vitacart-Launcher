@@ -13938,7 +13938,7 @@ FLOAT = {
     LAYERS = {
         -- pocket walls are listed before the floors: drawn after them when the back faces the camera
         vita = { "backgrime", "backgloss_marks", "wallbackR", "wallbackT", "wallbackL", "wallbackB", "backgloss_pins", "backcuts", "back",
-                 "band", "front", "well", "label", "bands", "gloss_arrow", "shine", "grime" },
+                 "band", "front", "well", "label", "bands", "bandw", "gloss_arrow", "shine", "grime" },
         psx = { "sheen", "back", "band", "front", "label", "shine" },
         -- "back..." overlays belong to the back face: drawn only when it faces the camera
         psp = { "backgrime", "backrefl", "slotrim", "backetch", "backglass", "wallbackR", "wallbackT", "wallbackL", "wallbackB",
@@ -14140,6 +14140,9 @@ function FLOAT.build_steps()
                     m.label = Render.loadObject(FLOAT.DATA .. "float_" .. kind .. "_label.obj", imgCoverTmp)
                     table.insert(m.layers, { name = "label", obj = m.label })
                 end)
+                if kind == "vita" then   -- art + white ID strip from one printed image
+                    step(function() m.labelp = Render.loadObject(FLOAT.DATA .. "float_vita_labelp.obj", imgCoverTmp) end)
+                end
             else
                 step(function() table.insert(m.layers, { name = name, obj = Render.loadObject(FLOAT.DATA .. "float_" .. kind .. "_" .. name .. ".obj", m.body_img) }) end)
             end
@@ -14398,6 +14401,13 @@ function FLOAT.draw_layers(kind, icon, disc_label, px, cy, pz, rx, ry, rz, with_
     local facing = math.cos(math.rad(ry)) * math.cos(math.rad(rx))
     local n = #m.layers
     local label = (disc_label and m.labeldisc) or m.label
+    -- a printed Vita cover carrying the white ID strip (image aspect 1.0868) uses the taller label
+    local strip = false
+    if m.labelp and icon then
+        local w = Graphics.getImageWidth(icon)
+        strip = w > 0 and math.abs(Graphics.getImageHeight(icon) / w - 1.0868) < 0.02
+        if strip then label = m.labelp end
+    end
     local last = {}
     for i = 1, n do
         local L = m.layers[facing >= 0 and i or (n + 1 - i)]
@@ -14444,6 +14454,8 @@ function FLOAT.draw_layers(kind, icon, disc_label, px, cy, pz, rx, ry, rz, with_
         elseif L.name == "label" then
             Render.useTexture(label, icon)
             Render.drawModel(label, px + dox, cy + doy, pz + doz, rx, ry, rz + dspin)
+        elseif L.name == "bandw" then
+            if not strip then Render.drawModel(L.obj, px, cy, pz, rx, ry, rz) end   -- the printed strip replaces it
         elseif FLOAT.DISC_LAYERS[L.name] and kind == "psp" then
             Render.drawModel(L.obj, px + dox, cy + doy, pz + doz, rx, ry, rz + dspin)
         elseif FLOAT.BACK_ONLY[L.name] then

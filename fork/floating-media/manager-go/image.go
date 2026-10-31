@@ -5,6 +5,10 @@ package main
 
 import (
 	"errors"
+	"golang.org/x/image/font"
+	"golang.org/x/image/font/gofont/gobold"
+	"golang.org/x/image/font/opentype"
+	"golang.org/x/image/math/fixed"
 	"image"
 	"image/color"
 	"math"
@@ -163,19 +167,10 @@ func discLabel(src *image.NRGBA, c circle, size int) *image.NRGBA {
 	return out
 }
 
-func makeLabel(img image.Image, kind string) (*image.NRGBA, error) {
+func makeLabel(img image.Image, kind, id string) (*image.NRGBA, error) {
 	src := toRGBA(img)
 	if kind == "card" {
-		// the cover itself (Float crops it under the blue band), capped at 512 px wide:
-		// a 3 MB scan costs the Vita seconds to decode and a lot of video memory
-		b := src.Bounds()
-		if b.Dx() > 512 {
-			h := int(math.Round(float64(b.Dy()) * 512 / float64(b.Dx())))
-			out := image.NewNRGBA(image.Rect(0, 0, 512, h))
-			draw.CatmullRom.Scale(out, out.Bounds(), src, b, draw.Over, nil)
-			return out, nil
-		}
-		return src, nil
+		return cardSticker(src, id), nil
 	}
 	c, ok := discFromAlpha(src)
 	if !ok {
@@ -327,3 +322,27 @@ func printEffect(src *image.NRGBA, cell float64) *image.NRGBA {
 }
 
 var _ = color.RGBA{}
+
+// cardSticker: the Vita card's sticker as Float draws it, from a box cover: the cover's own
+// PS VITA strip (top 13%) cropped off, the art window (aspect 0.9668) and the white ID strip
+// below it, 512 px wide. Float recognises the 1.0868 aspect and maps it over art + strip.
+func cardSticker(src *image.NRGBA, id string) *image.NRGBA {
+	const W, artH, stripH = 512, 495, 61 // 512 * 0.9668, 512 * 0.12
+	b := src.Bounds()
+	top := b.Min.Y + b.Dy()*13/100
+	need := int(math.Round(float64(b.Dx()) * float64(artH) / W))
+	if top+need > b.Max.Y {
+		need = b.Max.Y - top
+	}
+	out := image.NewNRGBA(image.Rect(0, 0, W, artH+stripH))
+	draw.CatmullRom.Scale(out, image.Rect(0, 0, W, artH), src, image.Rect(b.Min.X, top, b.Max.X, top+need), draw.Src, nil)
+	draw.Draw(out, image.Rect(0, artH, W, artH+stripH), image.NewUniform(color.NRGBA{246, 246, 244, 255}), image.Point{}, draw.Src)
+	if f, err := opentype.Parse(gobold.TTF); err == nil {
+		face, _ := opentype.NewFace(f, &opentype.FaceOptions{Size: 30, DPI: 72})
+		d := &font.Drawer{Dst: out, Src: image.NewUniform(color.NRGBA{52, 52, 56, 255}), Face: face}
+		adv := d.MeasureString(id)
+		d.Dot = fixed.P((W-adv.Ceil())/2, artH+stripH/2+11)
+		d.DrawString(id)
+	}
+	return out
+}

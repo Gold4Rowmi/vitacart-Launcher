@@ -631,11 +631,13 @@ def vita_card():
     vis = min(1.0, (ah / aw) * cover_aspect)       # full cover width, so only this fraction of its height shows (no squash)
     top = min(0.13, 1 - vis)                       # cover scans carry their own PS VITA strip: crop it off the top
     m_ = Mesh(); fan(m_, art, zwell + 0.003, planar(abb, 0, 1, top, vis)); m_.write("float_vita_label")
-    m_ = Mesh()
     bbb, wbb_ = bbox(blue), bbox(white)
-    fan(m_, blue, zwell + 0.004, planar(bbb, 0, 0.5, 0.56, 0.11))
-    fan(m_, white, zwell + 0.004, planar(wbb_, 0, 0.5, 0.70, 0.045))
-    m_.write("float_vita_bands")
+    # printed covers from the Art Manager carry the white ID strip in the image (aspect 1.0868):
+    # this label covers art + strip from one image and the white band mesh is skipped
+    cbb = (abb[0], wbb_[1], abb[2], abb[3])
+    m_ = Mesh(); fan(m_, art, zwell + 0.003, planar(cbb)); fan(m_, white, zwell + 0.003, planar(cbb)); m_.write("float_vita_labelp")
+    m_ = Mesh(); fan(m_, blue, zwell + 0.004, planar(bbb, 0, 0.5, 0.56, 0.11)); m_.write("float_vita_bands")
+    m_ = Mesh(); fan(m_, white, zwell + 0.004, planar(wbb_, 0, 0.5, 0.70, 0.045)); m_.write("float_vita_bandw")
     variant_set("float_vita_gloss_arrow", lambda g, s: fan(g, arrow, zf + 0.002, planar(bb, s, 0.5, 0, 1)))
     shine_quad("vita", sbb[2] - sbb[0], sbb[1] + 0.01, sbb[3] - 0.10, zwell + 0.008)   # drifts 0.10 (index.lua FLOAT.SHINE)
 
@@ -701,7 +703,7 @@ def vita_card():
 # ================================================================== PS1 DISC
 def ps1_disc():
     R, r_hole, T, seg = 0.925, 0.115, 0.03, 48
-    r_li, r_lo = 0.33 * R, 0.975 * R
+    r_li, r_lo = 0.385 * R, 0.983 * R   # real CD: label from the 46 mm clamp edge to 118 mm
     bb = (-R, -R, R, R)
     m = Mesh(); ring(m, r_hole, R, -T / 2, planar(bb, 0.5, 0.5, 0, 0.5, mirror=True), seg); m.write("float_psx_back")
     m = Mesh(); ring(m, 0.3 * R, R, -T / 2 - 0.004, planar(bb), seg); m.write("float_psx_sheen")

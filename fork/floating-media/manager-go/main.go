@@ -274,7 +274,7 @@ func main() {
 			if kind != "card" && cr > 4 {
 				label = discLabel(toRGBA(img), circle{cx, cy, cr}, 512) // circle confirmed in the editor
 			} else {
-				label, err = makeLabel(img, kind)
+				label, err = makeLabel(img, kind, id)
 				if err != nil {
 					fail(w, 400, err)
 					return
@@ -510,8 +510,12 @@ func runPrintAll(cfg Config) {
 		ok := false
 		if data, err := ftpGet(c, src); err == nil {
 			if img, _, err := image.Decode(bytes.NewReader(data)); err == nil {
-				out := printEffect(toRGBA(img), cfg.PrintCell)
 				base := strings.TrimSuffix(it.name, filepath.Ext(it.name))
+				src := toRGBA(img)
+				if it.sys.Kind == "card" {
+					src = cardSticker(src, base)
+				}
+				out := printEffect(src, cfg.PrintCell)
 				ok = ftpPut(c, printRoot+"/"+it.sys.Folder+"/"+base+".png", encodePNG(out)) == nil
 			}
 		}

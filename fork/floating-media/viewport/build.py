@@ -24,7 +24,7 @@ def extract_float(src_path):
 MOCKS = r"""
 Timer = { new = function() return {} end, getTime = function() return 0 end }
 FILTER_LINEAR = 1
-Graphics = { loadImage = function(p) return p end, setImageFilters = function() end }
+Graphics = { loadImage = function(p) return p end, setImageFilters = function() end, getImageWidth = function() return 0 end, getImageHeight = function() return 0 end }
 Render = {
     loadObject = function(path, img) return { path = path, tex = img } end,
     useTexture = function(m, img) m.tex = img end,
