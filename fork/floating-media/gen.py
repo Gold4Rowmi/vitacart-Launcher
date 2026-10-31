@@ -1225,8 +1225,15 @@ def shadow():
     m.write("float_shadow")
     # one soft static blob under the item: wide, faint, no core (it never turns with the item)
     img = Image.new("RGBA", (256, 256), (0, 0, 0, 0))
-    ImageDraw.Draw(img).ellipse([30, 92, 226, 164], fill=(0, 0, 0, 95))
-    img = img.filter(ImageFilter.GaussianBlur(34))
+    ImageDraw.Draw(img).ellipse([40, 96, 216, 160], fill=(0, 0, 0, 110))
+    img = img.filter(ImageFilter.GaussianBlur(30))
+    # the blur must reach zero inside the texture or the quad's rectangle shows on the floor
+    import numpy as np
+    a = np.array(img)
+    yy, xx = np.mgrid[0:256, 0:256]
+    edge = np.clip(1.0 - ((xx - 128) / 124.0) ** 2 - ((yy - 128) / 110.0) ** 2, 0, 1) ** 0.5
+    a[..., 3] = (a[..., 3] * edge).astype(np.uint8)
+    img = Image.fromarray(a, "RGBA")
     img.save(f"{OUT}/float_shadow.png")
 
 
