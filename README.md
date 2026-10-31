@@ -1,5 +1,7 @@
 # VITACART
 
+![VITACART](Media/vitacart_hero.png)
+
 **RetroFlow Float**: a fork of [RetroFlow Launcher](https://github.com/jimbob4000/RetroFlow-Launcher) by jimbob4000
 (itself built on [HexFlow Launcher](https://github.com/VitaHEX-Games/HexFlow-Launcher)) that replaces the box covers in
 the coverflow with floating physical media: PS Vita game cards, PSP UMDs, PS1 discs and jewel cases, drawn as real
