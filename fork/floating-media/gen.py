@@ -25,7 +25,7 @@ from PIL import Image, ImageDraw, ImageFilter
 
 OUT = sys.argv[1] if len(sys.argv) > 1 else "out/DATA"
 os.makedirs(OUT, exist_ok=True)
-GLOSS_STEPS = 12
+GLOSS_STEPS = 8
 TEX = 512
 
 
@@ -695,7 +695,7 @@ def vita_card():
         t = min(1.0, max(0.0, (r - 0.96 * TEX) / (0.03 * TEX)))
         v = int(14 + 70 * t)
         d.line([(TEX // 2, r), (TEX, r)], fill=(v, v, v + 4, 255))
-    img.save(f"{OUT}/float_vita_body.png")
+    img.resize((512, 512), Image.LANCZOS).save(f"{OUT}/float_vita_body.png")   # 1024 costs ~0.5 s to load; cards never show that big
     TEX = 512
     return (bb[3] - bb[1]) / 2, -(bb[1] + bb[3]) / 2
 
@@ -1148,7 +1148,7 @@ def psp_umd():
         region = img.crop((ox, 0, ox + TEX // 2, TEX // 2))
         region.alpha_composite(grain)
         img.paste(region, (ox, 0))
-    img.save(f"{OUT}/float_psp_body.png")
+    img.resize((512, 512), Image.LANCZOS).save(f"{OUT}/float_psp_body.png")
     TEX = 512
     return (bb[3] - bb[1]) / 2, -(bb[1] + bb[3]) / 2
 
