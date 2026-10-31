@@ -14086,12 +14086,36 @@ function FLOAT.label_path(file)
         local folders = { [1] = "Sony - PlayStation Vita", [2] = "Sony - PlayStation Portable", [3] = "Sony - PlayStation" }
         local kind = FLOAT.media_kind(file.app_type, file.name)
         local suffix = (kind == "psp" and "_umd.png") or (kind == "psx" and "_disc.png") or nil
-        local base = folders[file.app_type] and ("ux0:/data/RetroFlowFloat/PRINT/COVERS/" .. folders[file.app_type] .. "/" .. tostring(file.name)) or nil
+        -- a game can be known by several ids (PSP homebrew: folder "938" vs PBP title id "UCJS10041",
+        -- and it may be scanned into two lists), so look under every id it carries, in its own
+        -- system folder first, then the folder of the media it is shown as, then the rest
+        local ids, seen_ids = {}, {}
+        for _, v in ipairs({ file.name, file.titleid, file.name_online, file.filename, file.apptitle }) do
+            v = v and tostring(v)
+            if v and v ~= "" and not v:find("[/:]") and not seen_ids[v] then seen_ids[v] = true; table.insert(ids, v) end
+        end
+        local order, seen_f = {}, {}
+        local kind_type = (kind == "vita" and 1) or (kind == "psp" and 2) or (kind == "psx" and 3) or nil
+        for _, t in ipairs({ file.app_type, kind_type, 1, 2, 3 }) do
+            if t and folders[t] and not seen_f[t] then seen_f[t] = true; table.insert(order, folders[t]) end
+        end
+        local function find(ext)
+            for _, folder in ipairs(order) do
+                for _, id in ipairs(ids) do
+                    local p = "ux0:/data/RetroFlowFloat/PRINT/COVERS/" .. folder .. "/" .. id .. ext
+                    if System.doesFileExist(p) then return p end
+                end
+            end
+        end
         -- 1. real disc art by game id in Float's own folder, 2. next to the shared cover,
         -- 3. a printed/custom cover by game id in Float's folder, 4. the shared cover
-        if suffix and base and System.doesFileExist(base .. suffix) then hit = { base .. suffix, true }
+        local disc = suffix and find(suffix)
+        if disc then hit = { disc, true }
         elseif suffix and path:match("%.png$") and System.doesFileExist((path:gsub("%.png$", suffix))) then hit = { (path:gsub("%.png$", suffix)), true }
-        elseif base and System.doesFileExist(base .. ".png") then hit = { base .. ".png", false } end
+        else
+            local cover = find(".png")
+            if cover then hit = { cover, false } end
+        end
         FLOAT.label_cache[key] = hit
     end
     if hit then
