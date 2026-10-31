@@ -129,6 +129,7 @@ def main():
         files.append(f"art/{f}")
         for k in art:
             if f.startswith(f"art_{k}") or (k == "bg" and f.startswith("bg_")): art[k].append(f)
+    art["psxcase"] = art["psx"]   # the case shows the same box cover
     scene["art"] = art
     json.dump(scene, open(os.path.join(out, "scene.json"), "w"), separators=(",", ":"))
     files.append("scene.json")

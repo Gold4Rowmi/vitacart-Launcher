@@ -13920,7 +13920,7 @@ FLOAT = {
     GLOSS_STEPS = 8,   -- highlight positions per view-dependent overlay set
     BACK_ONLY = { backcuts = 0.5, backetch = -0.05 },    -- pocket floors also show from the side
     GRIME = false,         -- wear overlay (dust, fingerprints, scuffs); off, judged too dirty
-    SHINE = { vita = 0.10, psp = 0.14, psx = 0.14 },   -- how far the soft label sheen drifts (model units) at full yaw
+    SHINE = { vita = 0.10, psp = 0.14, psx = 0.14, psxcase = 0.14 },   -- how far the soft label sheen drifts (model units) at full yaw
     SHINE_SPAN = 40,       -- degrees of yaw for the full slide
     REFLECT = false,       -- floor reflection under the selected item (off: judged odd)
     -- UMD: the disc is loose on its hub. It slides to the low side of its play as the shell tilts
@@ -13932,14 +13932,15 @@ FLOAT = {
     disc = { x = 0, y = 0, vx = 0, vy = 0, spin = 0, last_rz = nil },
     REFLECT_LAYERS = { vita = { "front", "well", "label", "bands", "band" },
                        psp = { "shellfront", "shellfrontbevel", "label", "hub", "glass", "band" },
-                       psx = { "front", "label", "band" } },   -- layer -> facing threshold (see draw_layers)
-    HALF = { vita = 0.949, psp = 0.956, psx = 0.925 },
-    YOFF = { vita = 0, psp = 0.018, psx = 0 },
+                       psx = { "front", "label", "band" }, psxcase = { "front", "label", "band" } },   -- layer -> facing threshold (see draw_layers)
+    HALF = { vita = 0.949, psp = 0.956, psx = 0.925, psxcase = 0.964 },
+    YOFF = { vita = 0, psp = 0.018, psx = 0, psxcase = 0 },
     LAYERS = {
         -- pocket walls are listed before the floors: drawn after them when the back faces the camera
         vita = { "backgrime", "backgloss_marks", "wallbackR", "wallbackT", "wallbackL", "wallbackB", "backgloss_pins", "backcuts", "back",
                  "band", "front", "well", "label", "bands", "bandw", "gloss_arrow", "shine", "grime" },
         psx = { "sheen", "back", "band", "front", "label", "shine" },
+        psxcase = { "back", "band", "front", "label", "glass", "shine" },   -- closed jewel case
         -- "back..." overlays belong to the back face: drawn only when it faces the camera
         psp = { "backgrime", "backrefl", "slotrim", "backetch", "backglass", "wallbackR", "wallbackT", "wallbackL", "wallbackB",
                 "backcuts", "shellback", "shellbackbevel", "sheen", "discback", "band",
@@ -14350,7 +14351,7 @@ end
 function FLOAT.media_kind(apptype, name)
     FLOAT.load_media_types()
     local o = name and FLOAT.media_types[name]
-    if o == "vita" or o == "psp" or o == "psx" then return o end
+    if o == "vita" or o == "psp" or o == "psx" or o == "psxcase" then return o end
     if apptype == 1 then return "vita"
     elseif apptype == 2 then return "psp"
     elseif apptype == 3 then return "psx"

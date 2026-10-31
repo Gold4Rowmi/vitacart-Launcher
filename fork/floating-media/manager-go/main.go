@@ -146,6 +146,7 @@ func main() {
 			g.System, g.Kind = s.Folder, s.Kind
 			if o, ok := overrides[g.ID]; ok { // "show as" override: the model Float draws for this game
 				g.Override = o
+				g.Kind = "case" // psxcase: the box cover goes on the case as is
 				for t, ss := range systems {
 					if kindOf[t] == o {
 						g.Kind = ss.Kind
@@ -271,7 +272,7 @@ func main() {
 			cx, _ := strconv.ParseFloat(r.FormValue("cx"), 64)
 			cy, _ := strconv.ParseFloat(r.FormValue("cy"), 64)
 			cr, _ := strconv.ParseFloat(r.FormValue("r"), 64)
-			if kind != "card" && cr > 4 {
+			if kind != "card" && kind != "case" && cr > 4 {
 				label = discLabel(toRGBA(img), circle{cx, cy, cr}, 512) // circle confirmed in the editor
 			} else {
 				label, err = makeLabel(img, kind, id)
@@ -336,7 +337,7 @@ func main() {
 		var in struct{ ID, Kind string }
 		json.NewDecoder(r.Body).Decode(&in)
 		in.ID = safeID.ReplaceAllString(in.ID, "")
-		if in.ID == "" || (in.Kind != "" && in.Kind != "vita" && in.Kind != "psp" && in.Kind != "psx") {
+		if in.ID == "" || (in.Kind != "" && in.Kind != "vita" && in.Kind != "psp" && in.Kind != "psx" && in.Kind != "psxcase") {
 			fail(w, 400, fmt.Errorf("bad request"))
 			return
 		}

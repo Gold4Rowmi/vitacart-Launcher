@@ -733,6 +733,54 @@ def ps1_disc():
     return R
 
 
+# ================================================================== PS1 jewel case (closed)
+def ps1_case():
+    """Standard CD jewel case, 142 x 125 x 10 mm, at the disc's scale: dark tray and spine,
+    clear lid over the front inlay (the box cover) on the right 120 mm, hinge zone on the left."""
+    k = 1.85 / 120                         # model units per mm (disc diameter = 1.85)
+    W, H, T, rc = 142 * k, 125 * k, 10 * k, 2.5 * k
+    zf, zb = T / 2, -T / 2
+    # outline counter-clockwise from the bottom-left corner so the left edge is the end of the band's u range
+    pts = []
+    for cx, cy, a0 in ((W / 2 - rc, -H / 2 + rc, -90), (W / 2 - rc, H / 2 - rc, 0), (-W / 2 + rc, H / 2 - rc, 90), (-W / 2 + rc, -H / 2 + rc, 180)):
+        for i in range(6):
+            a = math.radians(a0 + 90 * i / 5)
+            pts.append((cx + rc * math.cos(a), cy + rc * math.sin(a)))
+    outline = clean_poly(pts)
+    bb = bbox(outline)
+    rim = 2.5 * k
+    art = [(W / 2 - 120 * k - rim, -H / 2 + rim), (W / 2 - rim, -H / 2 + rim), (W / 2 - rim, H / 2 - rim), (W / 2 - 120 * k - rim, H / 2 - rim)]
+    abb = bbox(art)
+    m = Mesh(); fan(m, outline, zb, planar(bb, 0.5, 0.5, 0, 0.5, mirror=True)); m.write("float_psxcase_back")
+    band_sides("float_psxcase_band", outline, zb, zf, 0, 1, 0.55, 0.95)
+    m = Mesh(); face_with_holes(m, outline, [clean_poly(art)], zf, planar(bb, 0, 0.5, 0, 0.5)); m.write("float_psxcase_front")
+    m = Mesh(); fan(m, art, zf - 0.006, planar(abb)); m.write("float_psxcase_label")   # the cover, a 120 mm square
+    m = Mesh(); fan(m, outline, zf + 0.002, planar(bb)); m.write("float_psxcase_glass")  # the clear lid over everything
+    shine_quad("psxcase", W * 0.7, -H / 2 + rim, H / 2 - rim, zf + 0.005)
+
+    img = Image.new("RGBA", (TEX, TEX), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    # front frame (u 0..0.5, rows 0..0.5): hinge zone and rim, dark plastic with a lighter lid edge
+    d.rectangle([0, 0, TEX // 2, TEX // 2], fill=(34, 34, 38, 255))
+    d.rectangle([0, 0, TEX // 2, 6], fill=(78, 78, 84, 255)); d.rectangle([0, TEX // 2 - 6, TEX // 2, TEX // 2], fill=(20, 20, 23, 255))
+    hx = int(TEX * 0.5 * (22 * k) / W)      # hinge zone width in texels
+    d.rectangle([hx - 3, 0, hx + 3, TEX // 2], fill=(60, 60, 66, 255))
+    # back tray (u 0.5..1, rows 0..0.5, mirrored): dark with the lighter disc tray and hub
+    d.rectangle([TEX // 2, 0, TEX, TEX // 2], fill=(26, 26, 30, 255))
+    pb = px_of(bb, 0.5, 0, 0.5, 0.5, mirror=True)
+    cx, cy = pb(-(W / 2 - 120 * k / 2 - rim), 0)
+    rr = int(TEX * 0.5 * (62 * k) / W)
+    d.ellipse([cx - rr, cy - rr, cx + rr, cy + rr], fill=(40, 40, 45, 255))
+    d.ellipse([cx - rr * 0.18, cy - rr * 0.18, cx + rr * 0.18, cy + rr * 0.18], fill=(70, 70, 76, 255))
+    # sides: clear-grey edges, the left (spine, last 125/534 of the perimeter) black
+    side_strip(d, (190, 196, 205), 0, 1)
+    P = 2 * (W + H)
+    d.rectangle([int(TEX * (1 - H / P)), int(0.55 * TEX) - 2, TEX, int(0.95 * TEX) + 2], fill=(18, 18, 20, 255))
+    d.rectangle([int(TEX * (1 - H / P)), int(0.72 * TEX), TEX, int(0.73 * TEX)], fill=(120, 120, 126, 255))
+    img.save(f"{OUT}/float_psxcase_body.png")
+    return H / 2
+
+
 # ================================================================== PSP UMD (hi-fi)
 def offset_outline(outline, d, cy=0.0):
     """Shrink a star-shaped outline towards (0, cy) by d along each vertex ray."""
@@ -1366,7 +1414,7 @@ def shine_quad(kind, w, y0, y1, z):
 
 REFLECT = { "vita": ["front", "well", "label", "bands", "band"],
             "psp": ["shellfront", "shellfrontbevel", "label", "hub", "glass", "band"],
-            "psx": ["front", "label", "band"] }
+            "psx": ["front", "label", "band"], "psxcase": ["front", "label", "band"] }
 
 
 def mirror_meshes():
@@ -1444,6 +1492,7 @@ def shadow_set(kind, outline, T):
 if __name__ == "__main__":
     hv, offv = vita_card()
     hp = ps1_disc()
+    hc = ps1_case()
     hu, off = psp_umd()
     shadow()
     gloss_texture()
@@ -1455,5 +1504,5 @@ if __name__ == "__main__":
     shine_texture()
     reflection_fade()
     print(mirror_meshes(), "reflection meshes")
-    print(f"half heights: vita={hv:.3f} (offset {offv:+.3f}) psx={hp:.3f} psp={hu:.3f} (psp centre offset {off:+.3f})")
+    print(f"half heights: vita={hv:.3f} (offset {offv:+.3f}) psx={hp:.3f} psxcase={hc:.3f} psp={hu:.3f} (psp centre offset {off:+.3f})")
     print(len(os.listdir(OUT)), "files")

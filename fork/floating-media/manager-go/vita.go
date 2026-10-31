@@ -43,7 +43,7 @@ func readMediaTypes(c *ftp.ServerConn) map[string]string {
 	if err != nil {
 		return out
 	}
-	re := regexp.MustCompile(`\["([A-Za-z0-9_]+)"\]\s*=\s*"(vita|psp|psx)"`)
+	re := regexp.MustCompile(`\["([A-Za-z0-9_]+)"\]\s*=\s*"(vita|psp|psx|psxcase)"`)
 	for _, m := range re.FindAllStringSubmatch(string(data), -1) {
 		out[m[1]] = m[2]
 	}

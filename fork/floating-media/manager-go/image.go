@@ -172,6 +172,15 @@ func makeLabel(img image.Image, kind, id string) (*image.NRGBA, error) {
 	if kind == "card" {
 		return cardSticker(src, id), nil
 	}
+	if kind == "case" { // jewel case: the box cover as is, capped at 512 px
+		b := src.Bounds()
+		if b.Dx() <= 512 {
+			return src, nil
+		}
+		out := image.NewNRGBA(image.Rect(0, 0, 512, int(math.Round(float64(b.Dy())*512/float64(b.Dx())))))
+		draw.CatmullRom.Scale(out, out.Bounds(), src, b, draw.Src, nil)
+		return out, nil
+	}
 	c, ok := discFromAlpha(src)
 	if !ok {
 		c, ok = findDisc(src)

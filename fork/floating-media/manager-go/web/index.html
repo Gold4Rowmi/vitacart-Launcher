@@ -168,9 +168,9 @@ dialog::backdrop { background:rgba(10,12,16,.55); }
 <script>
 const $ = s => document.querySelector(s);
 const api = (u, o) => fetch(u, o).then(async r => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || r.statusText); return j; });
-const KIND = { card: 'Vita card', umd: 'UMD', disc: 'PS1 disc' };
+const KIND = { card: 'Vita card', umd: 'UMD', disc: 'PS1 disc', case: 'PS1 case' };
 const systemKind = t => ({ 1: 'card', 2: 'umd', 3: 'disc' })[t];
-const kindName = k => ({ vita: 'card', psp: 'umd', psx: 'disc' })[k];
+const kindName = k => ({ vita: 'card', psp: 'umd', psx: 'disc', psxcase: 'case' })[k];
 
 // ---- toast, optionally with one action ("Undo")
 function toast(m, bad = false, ms = 2600, action = null) {
@@ -235,11 +235,11 @@ function row(g) {
   const has = g.discart || g.printed;
   const state = g.discart ? ['on', 'real disc art'] : g.printed ? ['on', 'printed cover'] : ['', 'stock cover'];
   el.innerHTML = `
-    ${has ? `<img class="cover ${g.kind !== 'card' ? 'disc' : ''}" src="/label/${g.id}?t=${Date.now()}" alt="">` : g.cover ? `<img class="cover" src="${g.cover}" alt="">` : '<div class="cover"></div>'}
+    ${has ? `<img class="cover ${g.kind !== 'card' && g.kind !== 'case' ? 'disc' : ''}" src="/label/${g.id}?t=${Date.now()}" alt="">` : g.cover ? `<img class="cover" src="${g.cover}" alt="">` : '<div class="cover"></div>'}
     <div class="who"><div class="title" title="${g.title}">${g.title}</div><div class="meta"><code>${g.id}</code>${g.hidden ? '<span class="pill">hidden in Float</span>' : ''}</div></div>
     <div class="state"><span class="pill ${state[0]}">${state[1]}</span>
-      <select class="kind" aria-label="Show as" title="Which media Float draws for this game"><option value="">${KIND[systemKind(g.type)]}</option><option value="vita">Vita card</option><option value="psp">UMD</option><option value="psx">PS1 disc</option></select></div>
-    <div class="acts"><label class="btn">${g.kind === 'card' ? 'Set cover' : 'Set disc art'} <input type="file" accept="image/*" hidden></label>${has ? '<button class="ghost danger">Remove</button>' : ''}</div>`;
+      <select class="kind" aria-label="Show as" title="Which media Float draws for this game"><option value="">${KIND[systemKind(g.type)]}</option><option value="vita">Vita card</option><option value="psp">UMD</option><option value="psx">PS1 disc</option><option value="psxcase">PS1 case</option></select></div>
+    <div class="acts"><label class="btn">${g.kind === 'card' || g.kind === 'case' ? 'Set cover' : 'Set disc art'} <input type="file" accept="image/*" hidden></label>${has ? '<button class="ghost danger">Remove</button>' : ''}</div>`;
   const sel = el.querySelector('select.kind'); sel.value = g.override || '';
   sel.onchange = async () => {
     sel.disabled = true;
@@ -248,7 +248,7 @@ function row(g) {
   };
   const pick = async file => {
     if (!file) return;
-    if (g.kind === 'card') return upload(g, el, file, null);
+    if (g.kind === 'card' || g.kind === 'case') return upload(g, el, file, null);
     try { const circle = await openEditor(g, file); if (circle) upload(g, el, file, circle); }
     catch (e) { toast(`${g.title}: ${e.message}`, true, 6000); }
   };
