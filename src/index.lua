@@ -14059,21 +14059,20 @@ function FLOAT.label_path(file)
         file.float_disc = nil
         return path
     end
-    local hit = FLOAT.label_cache[path]
+    local key = tostring(file.name) .. "|" .. tostring(path)
+    local hit = FLOAT.label_cache[key]
     if hit == nil then
         hit = false
-        -- printed-look copy made by fork/floating-media/print_covers.py (Float's own folder)
-        local printed = path:gsub("^ux0:/data/RetroFlow/COVERS/", "ux0:/data/RetroFlowFloat/PRINT/COVERS/"):gsub("%.jpg$", ".png")
-        -- real disc art: "<id>_umd.png" (PSP) or "<id>_disc.png" (PS1) next to the cover or in PRINT
-        local suffix = (file.app_type == 2 and "_umd.png") or (file.app_type == 3 and "_disc.png") or nil
-        if suffix then
-            local alt_p = printed:gsub("%.png$", suffix)
-            local alt = path:gsub("%.png$", suffix)
-            if alt_p ~= printed and System.doesFileExist(alt_p) then hit = { alt_p, true }
-            elseif alt ~= path and System.doesFileExist(alt) then hit = { alt, true } end
-        end
-        if not hit and printed ~= path and System.doesFileExist(printed) then hit = { printed, false } end
-        FLOAT.label_cache[path] = hit
+        local folders = { [1] = "Sony - PlayStation Vita", [2] = "Sony - PlayStation Portable", [3] = "Sony - PlayStation" }
+        local kind = FLOAT.media_kind(file.app_type, file.name)
+        local suffix = (kind == "psp" and "_umd.png") or (kind == "psx" and "_disc.png") or nil
+        local base = folders[file.app_type] and ("ux0:/data/RetroFlowFloat/PRINT/COVERS/" .. folders[file.app_type] .. "/" .. tostring(file.name)) or nil
+        -- 1. real disc art by game id in Float's own folder, 2. next to the shared cover,
+        -- 3. a printed/custom cover by game id in Float's folder, 4. the shared cover
+        if suffix and base and System.doesFileExist(base .. suffix) then hit = { base .. suffix, true }
+        elseif suffix and path:match("%.png$") and System.doesFileExist((path:gsub("%.png$", suffix))) then hit = { (path:gsub("%.png$", suffix)), true }
+        elseif base and System.doesFileExist(base .. ".png") then hit = { base .. ".png", false } end
+        FLOAT.label_cache[key] = hit
     end
     if hit then
         file.float_disc = hit[2] or nil
@@ -14197,7 +14196,22 @@ function FLOAT.offsets(side, index)
     return y, z, rx, ry, rz
 end
 
-function FLOAT.media_kind(apptype)
+-- Per-game media override written by the Art Manager: ux0:/data/RetroFlowFloat/media_types.lua
+-- returns { ["GTASA0000"] = "vita", ... } with values vita / psp / psx
+function FLOAT.load_media_types()
+    if FLOAT.media_types then return end
+    FLOAT.media_types = {}
+    local path = "ux0:/data/RetroFlowFloat/media_types.lua"
+    if System.doesFileExist(path) then
+        local t = {}
+        if not importLuaFile(path, t) then FLOAT.media_types = t end
+    end
+end
+
+function FLOAT.media_kind(apptype, name)
+    FLOAT.load_media_types()
+    local o = name and FLOAT.media_types[name]
+    if o == "vita" or o == "psp" or o == "psx" then return o end
     if apptype == 1 then return "vita"
     elseif apptype == 2 then return "psp"
     elseif apptype == 3 then return "psx"
@@ -14586,7 +14600,8 @@ function FLOAT.draw_cover_real(x, y, text, icon, sel, apptype, cur_p)
     local fl_y, fl_z, fl_rx, fl_ry, fl_rz = 0, 0, 0, 0, 0
     if setReflections == 2 and hideBoxes <= 0 then
         fl_y, fl_z, fl_rx, fl_ry, fl_rz = FLOAT.offsets(abs_side_factor, cur_p)
-        local kind = FLOAT.media_kind(apptype)
+        local cur_file = FLOAT.cur_def and cur_p and FLOAT.cur_def[cur_p]
+        local kind = FLOAT.media_kind(apptype, cur_file and cur_file.name)
         if kind then
             FLOAT.draw_media(kind, icon, x + extrax, y + extray, -5 - extraz - zoom + fl_z,
                 fl_y, fl_rx, math.deg(rot) + fl_ry, fl_rz, abs_side_factor, cur_p)
@@ -17372,19 +17387,19 @@ while true do
         local tmpimageText=""
         -- Draw box
         if apptype==1 then
-            if not (setReflections == 2 and FLOAT.draw_preview("vita", prevX, -1.0, -5 + prevZ, math.deg(prevRot+prvRotY))) then -- FLOATING PHYSICAL MEDIA (fork)
+            if not (setReflections == 2 and FLOAT.draw_preview(FLOAT.media_kind(1, app_titleid), prevX, -1.0, -5 + prevZ, math.deg(prevRot+prvRotY))) then -- FLOATING PHYSICAL MEDIA (fork)
                 Render.drawModel(modCoverNoref, prevX, -1.0, -5 + prevZ, 0, math.deg(prevRot+prvRotY), 0)
                 Render.drawModel(modBoxNoref, prevX, -1.0, -5 + prevZ, 0, math.deg(prevRot+prvRotY), 0)
             end
             tmpapptype = lang_lines.PS_Vita_Game 
         elseif apptype==2 then
-            if not (setReflections == 2 and FLOAT.draw_preview("psp", prevX, -1.0, -5 + prevZ, math.deg(prevRot+prvRotY))) then -- FLOATING PHYSICAL MEDIA (fork)
+            if not (setReflections == 2 and FLOAT.draw_preview(FLOAT.media_kind(2, app_titleid), prevX, -1.0, -5 + prevZ, math.deg(prevRot+prvRotY))) then -- FLOATING PHYSICAL MEDIA (fork)
                 Render.drawModel(modCoverPSPNoref, prevX, -1.0, -5 + prevZ, 0, math.deg(prevRot+prvRotY), 0)
                 Render.drawModel(modBoxPSPNoref, prevX, -1.0, -5 + prevZ, 0, math.deg(prevRot+prvRotY), 0)
             end
             tmpapptype = lang_lines.PSP_Game 
         elseif apptype==3 then
-            if not (setReflections == 2 and FLOAT.draw_preview("psx", prevX, -1.0, -5 + prevZ, math.deg(prevRot+prvRotY))) then -- FLOATING PHYSICAL MEDIA (fork)
+            if not (setReflections == 2 and FLOAT.draw_preview(FLOAT.media_kind(3, app_titleid), prevX, -1.0, -5 + prevZ, math.deg(prevRot+prvRotY))) then -- FLOATING PHYSICAL MEDIA (fork)
                 Render.drawModel(modCoverPSXNoref, prevX, -1.0, -5 + prevZ, 0, math.deg(prevRot+prvRotY), 0)
                 Render.drawModel(modBoxPSXNoref, prevX, -1.0, -5 + prevZ, 0, math.deg(prevRot+prvRotY), 0)
             end

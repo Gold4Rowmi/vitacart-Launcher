@@ -56,6 +56,9 @@ h2 span { font-weight:400; }
 .title { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .meta { color:var(--text-2); font-size:13px; }
 .meta code { font:13px ui-monospace, Menlo, Consolas, monospace; }
+select.kind { background:transparent; border:1px solid transparent; color:var(--text-2); font:13px system-ui, sans-serif; border-radius:var(--radius-sm); padding:2px 4px; cursor:pointer; }
+select.kind:hover { border-color:var(--line-strong); color:var(--text); }
+select.kind:focus-visible { outline:2px solid var(--accent); }
 .state { display:flex; align-items:center; gap:10px; }
 .lab { width:44px; height:44px; border-radius:50%; object-fit:cover; background:var(--surface-2); border:1px solid var(--line); }
 .lab.card { border-radius:3px; }
@@ -132,6 +135,8 @@ const $ = s => document.querySelector(s);
 const toast = (m, bad = false, ms = 2600) => { const t = $('#toast'); t.textContent = m; t.className = 'show' + (bad ? ' bad' : ''); clearTimeout(toast.h); toast.h = setTimeout(() => t.className = '', ms); };
 const api = (u, o) => fetch(u, o).then(async r => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || r.statusText); return j; });
 const KIND = { card: 'Vita card', umd: 'UMD', disc: 'PS1 disc' };
+const systemKind = t => ({ 1: 'card', 2: 'umd', 3: 'disc' })[t];
+const kindName = k => ({ vita: 'card', psp: 'umd', psx: 'disc' })[k];
 
 async function status() {
   try { const s = await api('/api/status'); $('#c-ftp').classList.toggle('on', s.ftp); $('#c-cmd').classList.toggle('on', s.cmd); if (!$('#ip').value) $('#ip').value = s.ip; }
@@ -161,9 +166,12 @@ function row(g) {
   const state = g.discart ? ['on', 'real disc art'] : g.printed ? ['on', 'printed cover'] : ['', 'stock cover'];
   el.innerHTML = `
     ${g.cover ? `<img class="cover" src="${g.cover}" alt="">` : '<div class="cover"></div>'}
-    <div class="who"><div class="title" title="${g.title}">${g.title}</div><div class="meta"><code>${g.id}</code> · ${KIND[g.kind]}${g.hidden ? ' · hidden in Float' : ''}</div></div>
+    <div class="who"><div class="title" title="${g.title}">${g.title}</div><div class="meta"><code>${g.id}</code> · show as
+      <select class="kind" aria-label="Show as"><option value="">${KIND[systemKind(g.type)]} (default)</option><option value="vita">Vita card</option><option value="psp">UMD</option><option value="psx">PS1 disc</option></select>${g.hidden ? ' · hidden in Float' : ''}</div></div>
     <div class="state">${has ? `<img class="lab ${g.kind === 'card' ? 'card' : ''}" src="/label/${g.id}?t=${Date.now()}" alt="">` : ''}<span class="pill ${state[0]}">${state[1]}</span></div>
     <div class="acts"><label class="btn">${g.kind === 'card' ? 'Set cover' : 'Set disc art'} <input type="file" accept="image/*" hidden></label>${has ? '<button class="ghost danger">Remove</button>' : ''}</div>`;
+  const sel = el.querySelector('select.kind'); sel.value = g.override || '';
+  sel.onchange = async () => { try { await api('/api/media_type', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: g.id, kind: sel.value }) }); toast(`${g.title}: shown as ${sel.value ? KIND[kindName(sel.value)] : 'default'}. Relaunch Float to apply.`, false, 4000); load(); } catch (e) { toast(e.message, true, 5000); } };
   const pick = async file => {
     if (!file) return;
     if (g.kind === 'card') return upload(g, file, null);
@@ -183,7 +191,7 @@ async function upload(g, file, circle) {
   toast(`Uploading ${g.title}…`, false, 60000);
   const fd = new FormData(); fd.append('image', file); fd.append('print', $('#print-on').checked ? '1' : '0');
   if (circle) { fd.append('cx', circle.cx); fd.append('cy', circle.cy); fd.append('r', circle.r); }
-  try { await api(`/api/label/${g.id}?type=${g.type}`, { method: 'POST', body: fd }); toast(`${g.title}: art uploaded. Relaunch Float to see it.`, false, 4000); load(); }
+  try { await api(`/api/label/${g.id}?type=${g.type}&kind=${g.kind}`, { method: 'POST', body: fd }); toast(`${g.title}: art uploaded. Relaunch Float to see it.`, false, 4000); load(); }
   catch (e) { toast(`${g.title}: ${e.message}`, true, 7000); }
 }
 

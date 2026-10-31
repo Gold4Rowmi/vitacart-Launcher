@@ -137,12 +137,21 @@ func main() {
 		for t, s := range systems {
 			state[t] = ftpList(c, printRoot+"/"+s.Folder)
 		}
+		overrides := readMediaTypes(c)
 		for i := range games {
 			g := &games[i]
 			s := systems[g.Type]
 			g.System, g.Kind = s.Folder, s.Kind
+			if o, ok := overrides[g.ID]; ok { // "show as" override: the model Float draws for this game
+				g.Override = o
+				for t, ss := range systems {
+					if kindOf[t] == o {
+						g.Kind = ss.Kind
+					}
+				}
+			}
 			g.Printed = state[g.Type][g.ID+".png"]
-			g.DiscArt = s.Suffix != "" && state[g.Type][g.ID+s.Suffix]
+			g.DiscArt = state[g.Type][g.ID+"_umd.png"] || state[g.Type][g.ID+"_disc.png"]
 			local := filepath.Join(cacheDir, g.ID+".png")
 			if _, err := os.Stat(local); err != nil && strings.HasPrefix(g.Icon, "ux0:") {
 				if data, err := ftpGet(c, g.Icon); err == nil {
@@ -224,9 +233,16 @@ func main() {
 			fail(w, 400, fmt.Errorf("unknown media type"))
 			return
 		}
+		kind := r.URL.Query().Get("kind") // effective media (override aware); the folder stays the game's own system
+		if kind == "" {
+			kind = s.Kind
+		}
 		name := id + ".png"
-		if s.Suffix != "" {
-			name = id + s.Suffix
+		switch kind {
+		case "umd":
+			name = id + "_umd.png"
+		case "disc":
+			name = id + "_disc.png"
 		}
 		path := printRoot + "/" + s.Folder + "/" + name
 		cfg := loadConfig()
@@ -247,10 +263,10 @@ func main() {
 			cx, _ := strconv.ParseFloat(r.FormValue("cx"), 64)
 			cy, _ := strconv.ParseFloat(r.FormValue("cy"), 64)
 			cr, _ := strconv.ParseFloat(r.FormValue("r"), 64)
-			if s.Kind != "card" && cr > 4 {
+			if kind != "card" && cr > 4 {
 				label = discLabel(toRGBA(img), circle{cx, cy, cr}, 512) // circle confirmed in the editor
 			} else {
-				label, err = makeLabel(img, s.Kind)
+				label, err = makeLabel(img, kind)
 				if err != nil {
 					fail(w, 400, err)
 					return
@@ -282,6 +298,36 @@ func main() {
 			return
 		}
 		writeJSON(w, 200, map[string]any{"ok": true, "name": name})
+	})
+
+	// /api/media_type: POST {"id": "...", "kind": "vita"|"psp"|"psx"|""} ("" removes the override)
+	http.HandleFunc("/api/media_type", func(w http.ResponseWriter, r *http.Request) {
+		var in struct{ ID, Kind string }
+		json.NewDecoder(r.Body).Decode(&in)
+		in.ID = safeID.ReplaceAllString(in.ID, "")
+		if in.ID == "" || (in.Kind != "" && in.Kind != "vita" && in.Kind != "psp" && in.Kind != "psx") {
+			fail(w, 400, fmt.Errorf("bad request"))
+			return
+		}
+		vitaMutex.Lock()
+		defer vitaMutex.Unlock()
+		c, err := dial(loadConfig())
+		if err != nil {
+			fail(w, 502, err)
+			return
+		}
+		defer c.Quit()
+		m := readMediaTypes(c)
+		if in.Kind == "" {
+			delete(m, in.ID)
+		} else {
+			m[in.ID] = in.Kind
+		}
+		if err := writeMediaTypes(c, m); err != nil {
+			fail(w, 502, err)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"ok": true, "types": m})
 	})
 
 	http.HandleFunc("/api/print_all", func(w http.ResponseWriter, r *http.Request) {

@@ -32,17 +32,51 @@ var systems = map[int]System{
 	3: {"Sony - PlayStation", "disc", "_disc.png"},
 }
 
+const mediaTypesPath = "ux0:/data/RetroFlowFloat/media_types.lua"
+
+var kindOf = map[int]string{1: "vita", 2: "psp", 3: "psx"}
+
+// readMediaTypes: per-game "show as" overrides written for the Lua ({ ["ID"] = "vita", ... }).
+func readMediaTypes(c *ftp.ServerConn) map[string]string {
+	out := map[string]string{}
+	data, err := ftpGet(c, mediaTypesPath)
+	if err != nil {
+		return out
+	}
+	re := regexp.MustCompile(`\["([A-Za-z0-9_]+)"\]\s*=\s*"(vita|psp|psx)"`)
+	for _, m := range re.FindAllStringSubmatch(string(data), -1) {
+		out[m[1]] = m[2]
+	}
+	return out
+}
+
+func writeMediaTypes(c *ftp.ServerConn, m map[string]string) error {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	b.WriteString("-- RetroFlow Float: per-game media type (written by the Art Manager)\nreturn {\n")
+	for _, k := range keys {
+		fmt.Fprintf(&b, "\t[%q] = %q,\n", k, m[k])
+	}
+	b.WriteString("}\n")
+	return ftpPut(c, mediaTypesPath, []byte(b.String()))
+}
+
 type Game struct {
-	ID      string `json:"id"`
-	Type    int    `json:"type"`
-	Title   string `json:"title"`
-	Icon    string `json:"icon"`
-	Hidden  bool   `json:"hidden"`
-	System  string `json:"system"`
-	Kind    string `json:"kind"`
-	Printed bool   `json:"printed"`
-	DiscArt bool   `json:"discart"`
-	Cover   string `json:"cover"`
+	ID       string `json:"id"`
+	Type     int    `json:"type"`
+	Title    string `json:"title"`
+	Icon     string `json:"icon"`
+	Hidden   bool   `json:"hidden"`
+	System   string `json:"system"`
+	Kind     string `json:"kind"`
+	Override string `json:"override"`
+	Printed  bool   `json:"printed"`
+	DiscArt  bool   `json:"discart"`
+	Cover    string `json:"cover"`
 }
 
 func dial(cfg Config) (*ftp.ServerConn, error) {
