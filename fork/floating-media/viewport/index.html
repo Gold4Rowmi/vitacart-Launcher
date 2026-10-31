@@ -122,7 +122,21 @@ const FLOOR = -0.6, PZ = -4.7, FY = 0.22;      // selected slot in RetroFlow's d
 
 // ---- the Lua FLOAT.draw_layers, ported ---------------------------------------------------
 function sheenAngle(rx, ry) { return deg(Math.atan2(Math.sin(rad(rx)), Math.sin(rad(ry)) + 1e-6)) + ry * 0.6; }
-function drawList(kind, disc, rx, ry, rz, withGloss, grimeOn = scene.grime) {
+const discState = { x: 0, y: 0, vx: 0, vy: 0, spin: 0, lastRz: null };
+function discStep(rx, ry, rz, dt) {
+  const d = discState, a = rad(rx), b = rad(ry), c = rad(rz), P = scene.discPlay || 0;
+  const gx = -Math.sin(a) * Math.sin(b) * Math.cos(c) - Math.cos(a) * Math.sin(c);
+  const gy = Math.sin(a) * Math.sin(b) * Math.sin(c) - Math.cos(a) * Math.cos(c);
+  if (dt > 0) {
+    d.vx += (90 * (gx * P - d.x) - 11 * d.vx) * dt; d.vy += (90 * (gy * P - d.y) - 11 * d.vy) * dt;
+    d.x += d.vx * dt; d.y += d.vy * dt;
+    if (d.lastRz !== null) d.spin -= (rz - d.lastRz);
+    d.spin *= Math.max(0, 1 - 4.0 * dt);
+  }
+  d.lastRz = rz;
+  return { dx: d.x, dy: d.y, spin: d.spin };
+}
+function drawList(kind, disc, rx, ry, rz, withGloss, grimeOn = scene.grime, loose = null) {
   const m = scene.layers[kind], n = m.length, out = [];
   const facing = Math.cos(rad(ry)) * Math.cos(rad(rx));
   const labelLayer = m.find(L => L.name === 'label');
@@ -157,9 +171,11 @@ function drawList(kind, disc, rx, ry, rz, withGloss, grimeOn = scene.grime) {
       const far = (L.side === 'R' && sy > 0.03) || (L.side === 'L' && sy < -0.03) || (L.side === 'B' && sx > 0.03) || (L.side === 'T' && sx < -0.03);
       if (far && ((facing >= 0) !== L.back)) out.push({ obj: L.obj, tex: L.tex, rz, layer: L.name });
     } else if (L.name === 'sheen') {
-      if (facing < 0.35) out.push({ obj: L.obj, tex: L.tex, rz: rz + sheenAngle(rx, ry), layer: 'sheen' });
+      if (facing < 0.35) out.push({ obj: L.obj, tex: L.tex, rz: rz + (loose ? loose.spin : 0) + sheenAngle(rx, ry), layer: 'sheen', loose });
     } else if (L.name === 'label') {
-      out.push({ obj: labelObj, tex: 'ART', rz, layer: 'label' });
+      out.push({ obj: labelObj, tex: 'ART', rz: rz + (loose ? loose.spin : 0), layer: 'label', loose });
+    } else if (kind === 'psp' && loose && scene.discLayers && scene.discLayers[L.name]) {
+      out.push({ obj: L.obj, tex: L.tex, rz: rz + loose.spin, layer: L.name, loose });
     } else if (L.backOnly !== undefined) {
       if (facing < L.backOnly) out.push({ obj: L.obj, tex: L.tex, rz, layer: L.name });
     } else out.push({ obj: L.obj, tex: L.tex, rz, layer: L.name });
@@ -261,7 +277,9 @@ async function frame() {
     fy = 0.22 + Math.sin(t * 1.7) * 0.045; rx += Math.sin(t * 1.1) * 1.5; ry += Math.sin(t * 0.8) * 6; rz = Math.sin(t * 1.3) * 1.2;
   }
   const cy = FLOOR + scene.half[kind] + scene.yoff[kind] + fy;
-  let list = drawList(kind, S.disc && !!scene.labeldisc[kind], rx, ry, rz, S.gloss, S.grime).filter(d => !S.hidden[kind].has(d.layer));
+  const now = performance.now(); const dt = Math.min(0.05, (now - (frame.last || now)) / 1000); frame.last = now;
+  const loose = (kind === 'psp' && S.gloss && scene.discPhysics) ? discStep(rx, ry, rz, dt) : null;
+  let list = drawList(kind, S.disc && !!scene.labeldisc[kind], rx, ry, rz, S.gloss, S.grime, loose).filter(d => !S.hidden[kind].has(d.layer));
   if (S.reflect && S.gloss && scene.reflect && scene.reflect[kind]) {   // floor reflection first (mirrored pose), then the fade
     const refl = scene.reflect[kind].map(r => ({ obj: r.obj, tex: r.name === 'label' ? 'ART' : r.tex, rz: -rz, layer: 'reflection', pose: { y: 2 * FLOOR - cy, rx: -rx, rz: -rz } }));
     list = refl.filter(d => !S.hidden[kind].has('reflection')).concat(list);
@@ -289,6 +307,8 @@ async function frame() {
     m.material.wireframe = S.wire;
     if (d.pose) { m.rotation.set(rad(d.pose.rx), rad(d.pose.ry !== undefined ? d.pose.ry : ry), rad(d.pose.rz)); m.position.set(0, d.pose.y, PZ + (d.pose.dz || 0)); m.renderOrder = i + 1; m.visible = true; return; }
     m.rotation.set(rad(rx), rad(ry), rad(d.rz));
+    if (d.loose) { const ax = new THREE.Vector3(1, 0, 0).applyEuler(m.rotation), ay = new THREE.Vector3(0, 1, 0).applyEuler(m.rotation);
+      m.position.set(ax.x * d.loose.dx + ay.x * d.loose.dy, cy + ax.y * d.loose.dx + ay.y * d.loose.dy, PZ + ax.z * d.loose.dx + ay.z * d.loose.dy); m.renderOrder = i + 1; m.visible = true; return; }
     if (d.off) { const ax = new THREE.Vector3(1, 0, 0).applyEuler(m.rotation); m.position.set(ax.x * d.off, cy + ax.y * d.off, PZ + ax.z * d.off); }
     else m.position.set(0, cy, PZ);
     m.renderOrder = i + 1; m.visible = true;

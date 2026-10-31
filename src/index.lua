@@ -13924,6 +13924,13 @@ FLOAT = {
     SHINE_SPAN = 40,       -- degrees of yaw for the full slide
     SHADOW_STEPS = 12,     -- footprint shadow: silhouette depth steps from upright (thin strip) to flat
     REFLECT = false,       -- floor reflection under the selected item (off: judged odd)
+    -- UMD: the disc is loose on its hub. It slides to the low side of its play as the shell tilts
+    -- and lags a little when the shell rolls; a damped spring, selected item only.
+    DISC_PHYSICS = true,
+    DISC_PLAY = 0.016,     -- how far the disc can shift (model units; real gap ~0.4 mm scaled up a touch)
+    DISC_SPRING = 90, DISC_DAMP = 11, DISC_FRICTION = 4.0,
+    DISC_LAYERS = { label = true, hub = true, discback = true, sheen = true, glass = false },
+    disc = { x = 0, y = 0, vx = 0, vy = 0, spin = 0, last_rz = nil },
     REFLECT_LAYERS = { vita = { "front", "well", "label", "bands", "bandR", "bandT", "bandL", "bandB" },
                        psp = { "shellfront", "shellfrontbevel", "label", "hub", "glass", "bandR", "bandT", "bandL", "bandB" },
                        psx = { "front", "label", "band" } },   -- layer -> facing threshold (see draw_layers)
@@ -14236,6 +14243,15 @@ FLOAT.DETAIL = { slotrim = true, backetch = true, backglass = true, backcuts = t
                  shellfrontbevel = true, glass = true, well = false, grime = true, backgrime = true, shine = true }
 function FLOAT.draw_layers(kind, icon, disc_label, px, cy, pz, rx, ry, rz, with_gloss)
     local m = FLOAT.media[kind]
+    -- loose UMD disc: world offset of the shell's x/y play and extra spin (selected item only)
+    local dox, doy, doz, dspin = 0, 0, 0, 0
+    if kind == "psp" and with_gloss and FLOAT.DISC_PHYSICS then
+        local dx, dy, sp = FLOAT.disc_step(rx, ry, rz)
+        local a, b, c = math.rad(rx), math.rad(ry), math.rad(rz)
+        local ax, ay, az = math.cos(b) * math.cos(c), math.cos(a) * math.sin(c) + math.sin(a) * math.sin(b) * math.cos(c), math.sin(a) * math.sin(c) - math.cos(a) * math.sin(b) * math.cos(c)
+        local bx, by, bz = -math.sin(c) * math.cos(b), math.cos(a) * math.cos(c) - math.sin(a) * math.sin(b) * math.sin(c), math.sin(a) * math.cos(c) + math.cos(a) * math.sin(b) * math.sin(c)
+        dox, doy, doz, dspin = ax * dx + bx * dy, ay * dx + by * dy, az * dx + bz * dy, sp
+    end
     local facing = math.cos(math.rad(ry)) * math.cos(math.rad(rx))
     local n = #m.layers
     local label = (disc_label and m.labeldisc) or m.label
@@ -14285,11 +14301,13 @@ function FLOAT.draw_layers(kind, icon, disc_label, px, cy, pz, rx, ry, rz, with_
         elseif L.name == "sheen" then
             -- data-side diffraction: spin the colour lobes about the disc axis with the view angle
             if facing < 0.35 then
-                Render.drawModel(L.obj, px, cy, pz, rx, ry, rz + FLOAT.sheen_angle(rx, ry))
+                Render.drawModel(L.obj, px + dox, cy + doy, pz + doz, rx, ry, rz + dspin + FLOAT.sheen_angle(rx, ry))
             end
         elseif L.name == "label" then
             Render.useTexture(label, icon)
-            Render.drawModel(label, px, cy, pz, rx, ry, rz)
+            Render.drawModel(label, px + dox, cy + doy, pz + doz, rx, ry, rz + dspin)
+        elseif FLOAT.DISC_LAYERS[L.name] and kind == "psp" then
+            Render.drawModel(L.obj, px + dox, cy + doy, pz + doz, rx, ry, rz + dspin)
         elseif FLOAT.BACK_ONLY[L.name] then
             -- geometry inside the shell (recess floors and walls, the etched arrow): with no depth
             -- test it would paint over the sides, so it is drawn only when the back clearly faces us
@@ -14299,6 +14317,27 @@ function FLOAT.draw_layers(kind, icon, disc_label, px, cy, pz, rx, ry, rz, with_
         end
     end
     for _, obj in ipairs(last) do Render.drawModel(obj, px, cy, pz, rx, ry, rz) end
+end
+
+-- Loose-disc physics for the selected UMD: returns the disc's offset in the shell's own x/y
+-- and its extra spin, after advancing the spring by this frame's dt
+function FLOAT.disc_step(rx, ry, rz)
+    local d, dt = FLOAT.disc, math.min(FLOAT.dt or 0, 0.05)
+    local a, b, c = math.rad(rx), math.rad(ry), math.rad(rz)
+    -- gravity in the shell's own frame (R^T * (0,-1,0)), x/y components only
+    local gx = -math.sin(a) * math.sin(b) * math.cos(c) - math.cos(a) * math.sin(c)
+    local gy = math.sin(a) * math.sin(b) * math.sin(c) - math.cos(a) * math.cos(c)
+    local tx, ty = gx * FLOAT.DISC_PLAY, gy * FLOAT.DISC_PLAY
+    if dt > 0 then
+        d.vx = d.vx + (FLOAT.DISC_SPRING * (tx - d.x) - FLOAT.DISC_DAMP * d.vx) * dt
+        d.vy = d.vy + (FLOAT.DISC_SPRING * (ty - d.y) - FLOAT.DISC_DAMP * d.vy) * dt
+        d.x, d.y = d.x + d.vx * dt, d.y + d.vy * dt
+        -- the disc stays put when the shell rolls, then friction drags it along
+        if d.last_rz then d.spin = d.spin - (rz - d.last_rz) end
+        d.spin = d.spin * math.max(0, 1 - FLOAT.DISC_FRICTION * dt)
+    end
+    d.last_rz = rz
+    return d.x, d.y, d.spin
 end
 
 function FLOAT.draw_media(kind, icon, px, py, pz, fy, rx, ry, rz, side, cur_p)

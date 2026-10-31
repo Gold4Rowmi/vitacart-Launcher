@@ -54,7 +54,7 @@ def main():
 
     kinds = sorted(k for k in F.LAYERS.keys())
     scene = {
-        "steps": int(F.GLOSS_STEPS), "grime": bool(F.GRIME), "shine": {k: float(F.SHINE[k]) for k in kinds if F.SHINE[k]}, "shineSpan": float(F.SHINE_SPAN), "reflectOn": bool(F.REFLECT), "reflfade": {"obj": "float_floor.obj", "tex": "float_floor.png"},
+        "steps": int(F.GLOSS_STEPS), "grime": bool(F.GRIME), "shine": {k: float(F.SHINE[k]) for k in kinds if F.SHINE[k]}, "shineSpan": float(F.SHINE_SPAN), "reflectOn": bool(F.REFLECT), "discPhysics": bool(F.DISC_PHYSICS), "discPlay": float(F.DISC_PLAY), "discLayers": {k: True for k in ("label", "hub", "discback", "sheen") if F.DISC_LAYERS[k]}, "reflfade": {"obj": "float_floor.obj", "tex": "float_floor.png"},
         "half": {k: float(F.HALF[k]) for k in kinds},
         "yoff": {k: float(F.YOFF[k]) for k in kinds},
         "layers": {}, "labeldisc": {}, "sets": list(sets), "ref": [],
