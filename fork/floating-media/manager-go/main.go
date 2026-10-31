@@ -294,8 +294,30 @@ func main() {
 		}
 		os.Remove(filepath.Join(cacheDir, "label_"+id+".png"))
 		if r.Method == http.MethodDelete {
+			// keep a copy so the row's Undo can put it back
+			if old, err := ftpGet(c, path); err == nil {
+				undoMu.Lock()
+				undo[id] = undoEntry{path: path, data: old}
+				undoMu.Unlock()
+			}
 			if err := c.Delete(path); err != nil {
 				fail(w, 400, err)
+				return
+			}
+			writeJSON(w, 200, map[string]any{"ok": true})
+			return
+		}
+		if r.Method == http.MethodPut { // restore the last removed art for this game
+			undoMu.Lock()
+			u, ok := undo[id]
+			delete(undo, id)
+			undoMu.Unlock()
+			if !ok {
+				fail(w, 404, fmt.Errorf("nothing to restore"))
+				return
+			}
+			if err := ftpPut(c, u.path, u.data); err != nil {
+				fail(w, 502, err)
 				return
 			}
 			writeJSON(w, 200, map[string]any{"ok": true})
@@ -338,39 +360,29 @@ func main() {
 		writeJSON(w, 200, map[string]any{"ok": true, "types": m})
 	})
 
+	// /api/print_all starts the batch in the background; /api/print_progress reports it; /api/print_cancel stops it
 	http.HandleFunc("/api/print_all", func(w http.ResponseWriter, r *http.Request) {
-		cfg := loadConfig()
-		vitaMutex.Lock()
-		defer vitaMutex.Unlock()
-		c, err := getFTP(cfg)
-		if err != nil {
-			fail(w, 502, err)
+		printMu.Lock()
+		if printJob.Running {
+			printMu.Unlock()
+			writeJSON(w, 200, map[string]any{"ok": true, "already": true})
 			return
 		}
-		n := 0
-		for _, s := range systems {
-			src := "ux0:/data/RetroFlow/COVERS/" + s.Folder
-			for name := range ftpList(c, src) {
-				lower := strings.ToLower(name)
-				if !strings.HasSuffix(lower, ".png") && !strings.HasSuffix(lower, ".jpg") {
-					continue
-				}
-				data, err := ftpGet(c, src+"/"+name)
-				if err != nil {
-					continue
-				}
-				img, _, err := image.Decode(bytes.NewReader(data))
-				if err != nil {
-					continue
-				}
-				out := printEffect(toRGBA(img), cfg.PrintCell)
-				base := strings.TrimSuffix(strings.TrimSuffix(name, filepath.Ext(name)), "")
-				if err := ftpPut(c, printRoot+"/"+s.Folder+"/"+base+".png", encodePNG(out)); err == nil {
-					n++
-				}
-			}
-		}
-		writeJSON(w, 200, map[string]any{"ok": true, "count": n})
+		printJob = printState{Running: true}
+		printMu.Unlock()
+		go runPrintAll(loadConfig())
+		writeJSON(w, 200, map[string]any{"ok": true})
+	})
+	http.HandleFunc("/api/print_progress", func(w http.ResponseWriter, r *http.Request) {
+		printMu.Lock()
+		defer printMu.Unlock()
+		writeJSON(w, 200, printJob)
+	})
+	http.HandleFunc("/api/print_cancel", func(w http.ResponseWriter, r *http.Request) {
+		printMu.Lock()
+		printJob.Cancel = true
+		printMu.Unlock()
+		writeJSON(w, 200, map[string]any{"ok": true})
 	})
 
 	http.HandleFunc("/api/relaunch", func(w http.ResponseWriter, r *http.Request) {
@@ -429,4 +441,86 @@ func main() {
 		}
 	}()
 	log.Fatal(http.ListenAndServe(fmt.Sprintf("127.0.0.1:%d", port), nil))
+}
+
+type undoEntry struct {
+	path string
+	data []byte
+}
+
+var (
+	undoMu sync.Mutex
+	undo   = map[string]undoEntry{}
+)
+
+type printState struct {
+	Running bool   `json:"running"`
+	Done    int    `json:"done"`
+	Total   int    `json:"total"`
+	Count   int    `json:"count"`
+	Cancel  bool   `json:"cancel"`
+	Error   string `json:"error"`
+}
+
+var (
+	printMu  sync.Mutex
+	printJob printState
+)
+
+func runPrintAll(cfg Config) {
+	finish := func(err error) {
+		printMu.Lock()
+		printJob.Running = false
+		if err != nil {
+			printJob.Error = err.Error()
+		}
+		printMu.Unlock()
+	}
+	vitaMutex.Lock()
+	defer vitaMutex.Unlock()
+	c, err := getFTP(cfg)
+	if err != nil {
+		finish(err)
+		return
+	}
+	type item struct {
+		sys  System
+		name string
+	}
+	var items []item
+	for _, s := range systems {
+		for name := range ftpList(c, "ux0:/data/RetroFlow/COVERS/"+s.Folder) {
+			lower := strings.ToLower(name)
+			if strings.HasSuffix(lower, ".png") || strings.HasSuffix(lower, ".jpg") {
+				items = append(items, item{s, name})
+			}
+		}
+	}
+	printMu.Lock()
+	printJob.Total = len(items)
+	printMu.Unlock()
+	for _, it := range items {
+		printMu.Lock()
+		cancel := printJob.Cancel
+		printMu.Unlock()
+		if cancel {
+			break
+		}
+		src := "ux0:/data/RetroFlow/COVERS/" + it.sys.Folder + "/" + it.name
+		ok := false
+		if data, err := ftpGet(c, src); err == nil {
+			if img, _, err := image.Decode(bytes.NewReader(data)); err == nil {
+				out := printEffect(toRGBA(img), cfg.PrintCell)
+				base := strings.TrimSuffix(it.name, filepath.Ext(it.name))
+				ok = ftpPut(c, printRoot+"/"+it.sys.Folder+"/"+base+".png", encodePNG(out)) == nil
+			}
+		}
+		printMu.Lock()
+		printJob.Done++
+		if ok {
+			printJob.Count++
+		}
+		printMu.Unlock()
+	}
+	finish(nil)
 }

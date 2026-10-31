@@ -5,77 +5,100 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RetroFlow Float Art Manager</title>
 <style>
-/* Tokens: off-white foundation, one blue accent ramp, semantic green/red; dark mode is its own palette */
+/* Tokens: off-white foundation, one blue accent ramp (the Vita's own blue), semantic green/red; dark mode is its own palette */
 :root {
   --bg:#f6f6f4; --surface:#ffffff; --surface-2:#f0f0ed; --line:#e3e3df; --line-strong:#cfcfca;
-  --text:#1b1c1a; --text-2:rgba(27,28,26,.6); --accent:#2a63c9; --accent-hover:#1f4fa6; --on-accent:#fff;
+  --text:#1b1c1a; --text-2:rgba(27,28,26,.68); --accent:#2a63c9; --accent-hover:#1f4fa6; --on-accent:#fff;
   --ok:#1f7a45; --ok-bg:#e6f4ea; --bad:#b4232c; --bad-bg:#fbe9ea; --radius:10px; --radius-sm:6px;
   --shadow:0 1px 2px rgba(20,20,20,.06), 0 8px 24px rgba(20,20,20,.08); color-scheme: light;
 }
 @media (prefers-color-scheme: dark) { :root {
   --bg:#111316; --surface:#1a1d22; --surface-2:#22262c; --line:rgba(255,255,255,.1); --line-strong:rgba(255,255,255,.18);
-  --text:rgba(255,255,255,.87); --text-2:rgba(255,255,255,.6); --accent:#8ab4ff; --accent-hover:#a6c6ff; --on-accent:#0d1b33;
+  --text:rgba(255,255,255,.87); --text-2:rgba(255,255,255,.62); --accent:#8ab4ff; --accent-hover:#a6c6ff; --on-accent:#0d1b33;
   --ok:#7fd4a1; --ok-bg:rgba(127,212,161,.14); --bad:#ff9a9a; --bad-bg:rgba(255,154,154,.14);
   --shadow:0 1px 2px rgba(0,0,0,.4), 0 12px 32px rgba(0,0,0,.5); color-scheme: dark; } }
 @media (prefers-reduced-motion: reduce) { * { transition:none !important; animation:none !important; } }
 * { box-sizing:border-box; }
 html, body { height:100%; }
 body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-.app { max-width:1180px; margin:0 auto; padding:20px max(16px, 3vw) 64px; }
-header { display:flex; flex-wrap:wrap; align-items:center; gap:12px 20px; margin-bottom:8px; }
-h1 { font-size:20px; font-weight:600; letter-spacing:-.01em; margin:0 0 2px; }
-.sub { color:var(--text-2); font-size:14px; margin:0 0 24px; max-width:68ch; }
+.app { max-width:1180px; margin:0 auto; padding:20px max(16px, 3vw) 96px; }
+header { display:flex; flex-wrap:wrap; align-items:center; gap:8px 20px; margin-bottom:6px; }
+h1 { font-size:20px; font-weight:600; letter-spacing:-.01em; margin:0; }
 .spacer { flex:1; }
-.conn { display:flex; align-items:center; gap:8px; font-size:14px; color:var(--text-2); }
+.sub { color:var(--text-2); font-size:14px; margin:0 0 18px; max-width:68ch; }
+/* connection line: one sentence, what to do when it is wrong */
+.conn { display:flex; align-items:center; gap:10px; font-size:14px; color:var(--text-2); flex-wrap:wrap; }
 .conn .dot { width:8px; height:8px; border-radius:50%; background:var(--bad); flex:none; }
 .conn.on .dot { background:var(--ok); } .conn.on { color:var(--text); }
-.ip { display:flex; align-items:center; gap:6px; }
-input[type=text] { background:var(--surface); border:1px solid var(--line-strong); color:var(--text); border-radius:var(--radius-sm); padding:8px 10px; font:14px system-ui, sans-serif; width:150px; }
+.conn form { display:inline-flex; gap:6px; align-items:center; }
+input[type=text] { background:var(--surface); border:1px solid var(--line-strong); color:var(--text); border-radius:var(--radius-sm); padding:8px 10px; font:14px system-ui, sans-serif; width:150px; min-height:40px; }
 input[type=text]:focus-visible { outline:2px solid var(--accent); outline-offset:1px; border-color:transparent; }
-button, .btn { background:var(--surface); border:1px solid var(--line-strong); color:var(--text); border-radius:var(--radius-sm); padding:8px 14px; font:500 14px system-ui, sans-serif; cursor:pointer; display:inline-flex; align-items:center; gap:6px; transition:background .1s, transform .1s; }
+button, .btn { background:var(--surface); border:1px solid var(--line-strong); color:var(--text); border-radius:var(--radius-sm); padding:8px 14px; min-height:40px; font:400 14px system-ui, sans-serif; cursor:pointer; display:inline-flex; align-items:center; gap:6px; transition:background .1s, transform .1s; }
 button:hover, .btn:hover { background:var(--surface-2); }
 button:active, .btn:active { transform:translateY(1px); }
 button:focus-visible, .btn:focus-within { outline:2px solid var(--accent); outline-offset:2px; }
 button:disabled { opacity:.5; cursor:default; transform:none; }
-button.primary { background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
+button.primary { background:var(--accent); border-color:var(--accent); color:var(--on-accent); font-weight:600; }
 button.primary:hover { background:var(--accent-hover); border-color:var(--accent-hover); }
-button.ghost { background:transparent; border-color:transparent; color:var(--text-2); padding:6px 8px; }
+button.ghost { background:transparent; border-color:transparent; color:var(--text-2); padding:8px 10px; }
 button.ghost:hover { background:var(--surface-2); color:var(--text); }
 button.danger { color:var(--bad); }
-.toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:0 0 28px; }
-label.sw { display:inline-flex; gap:8px; align-items:center; font-size:14px; color:var(--text-2); margin-left:auto; cursor:pointer; }
-label.sw input { accent-color:var(--accent); width:16px; height:16px; }
-h2 { font-size:14px; font-weight:600; color:var(--text-2); margin:32px 0 10px; }
+.toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:0 0 24px; }
+/* options popover */
+.pop { position:relative; }
+.pop .menu { position:absolute; top:calc(100% + 6px); left:0; z-index:5; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); padding:8px; min-width:280px; display:none; }
+.pop.open .menu { display:block; }
+.menu label, .menu button.item { display:flex; align-items:center; gap:10px; width:100%; min-height:40px; padding:6px 10px; border:0; background:transparent; color:var(--text); font:14px system-ui, sans-serif; border-radius:var(--radius-sm); cursor:pointer; text-align:left; }
+.menu label:hover, .menu button.item:hover { background:var(--surface-2); }
+.menu label input { accent-color:var(--accent); width:18px; height:18px; margin:0; }
+.menu .sep { height:1px; background:var(--line); margin:6px 4px; }
+.menu small { color:var(--text-2); display:block; font-size:12px; }
+h2 { font-size:14px; font-weight:600; color:var(--text-2); margin:28px 0 10px; }
 h2 span { font-weight:400; }
 .rows { background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; }
 .row { display:grid; grid-template-columns:56px 1fr auto auto; gap:14px; align-items:center; padding:10px 14px; border-top:1px solid var(--line); min-height:76px; transition:background .1s; }
 .row:first-child { border-top:0; }
 .row.drag { background:color-mix(in oklch, var(--accent) 10%, var(--surface)); box-shadow:inset 0 0 0 2px var(--accent); }
+.row.hidden .cover, .row.hidden .who { opacity:.55; }
+.row.busy { background:var(--surface-2); }
 .cover { width:56px; height:56px; object-fit:cover; border-radius:4px; background:var(--surface-2); }
 .cover.disc { border-radius:50%; }
 .who { min-width:0; }
 .title { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.meta { color:var(--text-2); font-size:13px; }
+.meta { color:var(--text-2); font-size:13px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
 .meta code { font:13px ui-monospace, Menlo, Consolas, monospace; }
-select.kind { background:transparent; border:1px solid transparent; color:var(--text-2); font:13px system-ui, sans-serif; border-radius:var(--radius-sm); padding:2px 4px; cursor:pointer; }
-select.kind:hover { border-color:var(--line-strong); color:var(--text); }
+.state { display:flex; align-items:center; gap:8px; }
+/* "show as" is a real control: bordered chip with a chevron */
+select.kind { appearance:none; -webkit-appearance:none; background:var(--surface) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%23888' stroke-width='1.5'/></svg>") no-repeat right 10px center; border:1px solid var(--line-strong); color:var(--text); font:13px system-ui, sans-serif; border-radius:999px; padding:0 26px 0 12px; min-height:36px; cursor:pointer; }
+select.kind:hover { background-color:var(--surface-2); }
 select.kind:focus-visible { outline:2px solid var(--accent); }
-.state { display:flex; align-items:center; gap:10px; }
-.lab { width:44px; height:44px; border-radius:50%; object-fit:cover; background:var(--surface-2); border:1px solid var(--line); }
-.lab.card { border-radius:3px; }
-.pill { font-size:12px; padding:3px 9px; border-radius:999px; background:var(--surface-2); color:var(--text-2); white-space:nowrap; }
-.pill.on { background:var(--ok-bg); color:var(--ok); }
+.pill { font-size:12px; padding:3px 9px; border-radius:999px; background:var(--surface); border:1px solid var(--line); color:var(--text-2); white-space:nowrap; }
+.pill.on { background:var(--ok-bg); border-color:transparent; color:var(--ok); }
 .acts { display:flex; gap:4px; align-items:center; }
-.acts .btn { padding:6px 10px; font-size:13px; }
+.acts .btn { padding:6px 12px; font-size:13px; }
 .hint { color:var(--text-2); font-size:13px; }
 .empty { padding:40px 20px; text-align:center; color:var(--text-2); }
 .empty b { color:var(--text); display:block; margin-bottom:6px; font-weight:600; }
 .skel { height:76px; border-top:1px solid var(--line); background:linear-gradient(90deg, var(--surface) 0%, var(--surface-2) 50%, var(--surface) 100%); background-size:200% 100%; animation:sh 1.2s linear infinite; }
 .skel:first-child { border-top:0; }
 @keyframes sh { from { background-position:200% 0; } to { background-position:-200% 0; } }
-#toast { position:fixed; left:50%; bottom:20px; transform:translate(-50%, 8px); opacity:0; background:var(--text); color:var(--bg); padding:10px 16px; border-radius:var(--radius-sm); font-size:14px; max-width:90vw; transition:opacity .15s, transform .15s; pointer-events:none; }
-#toast.show { opacity:1; transform:translate(-50%, 0); }
+/* toast with an optional action */
+#toast { position:fixed; left:50%; bottom:20px; transform:translate(-50%, 8px); opacity:0; background:var(--text); color:var(--bg); padding:8px 8px 8px 16px; border-radius:var(--radius-sm); font-size:14px; max-width:90vw; transition:opacity .15s, transform .15s; pointer-events:none; display:flex; gap:12px; align-items:center; }
+#toast.show { opacity:1; transform:translate(-50%, 0); pointer-events:auto; }
 #toast.bad { background:var(--bad); color:#fff; }
+#toast button { background:transparent; border:1px solid rgba(255,255,255,.35); color:inherit; min-height:32px; padding:4px 10px; font-weight:600; }
+#toast button:hover { background:rgba(255,255,255,.12); }
+/* pending-changes bar */
+#pending { position:fixed; left:50%; bottom:20px; transform:translate(-50%, 80px); background:var(--surface); color:var(--text); border:1px solid var(--line); box-shadow:var(--shadow); border-radius:var(--radius); padding:10px 10px 10px 16px; display:flex; gap:14px; align-items:center; font-size:14px; max-width:92vw; transition:transform .25s cubic-bezier(.2,.8,.2,1); z-index:4; }
+#pending.show { transform:translate(-50%, 0); }
+body.toasting #pending.show { transform:translate(-50%, -52px); }
+/* progress panel */
+#progress { position:fixed; right:20px; bottom:20px; background:var(--surface); border:1px solid var(--line); box-shadow:var(--shadow); border-radius:var(--radius); padding:12px 14px; width:min(92vw, 320px); display:none; z-index:4; }
+#progress.show { display:block; }
+#progress .t { font-weight:600; margin-bottom:6px; }
+#progress .bar { height:6px; background:var(--surface-2); border-radius:3px; overflow:hidden; margin:8px 0 10px; }
+#progress .bar i { display:block; height:100%; background:var(--accent); width:0; transition:width .3s; }
+#progress .r { display:flex; justify-content:space-between; align-items:center; color:var(--text-2); font-size:13px; }
 /* editor */
 dialog { border:0; border-radius:var(--radius); padding:0; background:var(--surface); color:var(--text); box-shadow:var(--shadow); width:min(92vw, 760px); }
 dialog::backdrop { background:rgba(10,12,16,.55); }
@@ -91,30 +114,41 @@ dialog::backdrop { background:rgba(10,12,16,.55); }
   .row { grid-template-columns:56px 1fr; }
   .state, .acts { grid-column:2; }
   .acts { flex-wrap:wrap; }
-  header .ip { width:100%; }
+  .conn { width:100%; }
+  #progress { left:16px; right:16px; width:auto; bottom:84px; }
+  .pop .menu { position:fixed; left:16px; right:16px; top:auto; bottom:92px; min-width:0; }
 }
 </style>
 </head>
 <body>
 <div class="app">
 <header>
-  <div><h1>RetroFlow Float Art Manager</h1></div>
+  <h1>RetroFlow Float Art Manager</h1>
   <div class="spacer"></div>
-  <span class="conn" id="c-ftp"><span class="dot"></span>Files</span>
-  <span class="conn" id="c-cmd"><span class="dot"></span>Commands</span>
-  <span class="ip"><input type="text" id="ip" placeholder="Vita IP" aria-label="Vita IP"><button class="ghost" id="save-ip">Save</button></span>
+  <div class="conn" id="conn"><span class="dot"></span><span id="conn-text">Checking the Vita…</span>
+    <form id="ip-form"><input type="text" id="ip" placeholder="Vita IP" aria-label="Vita IP" inputmode="decimal" autocomplete="off"><button class="ghost" type="submit">Save</button></form>
+    <button class="ghost" id="refresh" title="Read the library from the Vita again">Refresh</button>
+  </div>
 </header>
 <p class="sub">Give each game the art its real media carries: a disc scan for PSP and PS1, a cover for a Vita card. Drop an image on a game or choose a file. Everything is written to RetroFlow Float's own folder on the Vita, never to RetroFlow.</p>
 <div class="toolbar">
   <button class="primary" id="relaunch">Relaunch Float on the Vita</button>
-  <button id="print-all">Print look on all covers</button>
   <label class="btn">Add wallpaper <input type="file" id="wall" accept="image/*" hidden></label>
-  <button class="ghost" id="refresh">Refresh</button>
-  <label class="sw"><input type="checkbox" id="print-on" checked> printed sticker look on new art</label>
+  <div class="pop" id="opts">
+    <button id="opts-btn" aria-haspopup="true" aria-expanded="false">Options ▾</button>
+    <div class="menu" role="menu">
+      <label><input type="checkbox" id="print-on" checked> <span>Printed sticker look on new art<small>CMYK halftone, like a real label</small></span></label>
+      <div class="sep"></div>
+      <button class="item" id="print-all"><span>Print look on all stock covers<small>Rewrites every printed cover, about a minute</small></span></button>
+    </div>
+  </div>
 </div>
 <div id="lists"></div>
 </div>
-<div id="toast" role="status"></div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+<div id="pending" role="status"><span id="pending-text"></span><button class="primary" id="pending-go">Relaunch Float</button></div>
+<div id="progress" role="status"><div class="t">Printing covers</div><div class="bar"><i></i></div><div class="r"><span id="prog-text">Starting…</span><button class="ghost" id="prog-cancel">Cancel</button></div></div>
 
 <dialog id="editor">
   <div class="ed">
@@ -133,50 +167,89 @@ dialog::backdrop { background:rgba(10,12,16,.55); }
 
 <script>
 const $ = s => document.querySelector(s);
-const toast = (m, bad = false, ms = 2600) => { const t = $('#toast'); t.textContent = m; t.className = 'show' + (bad ? ' bad' : ''); clearTimeout(toast.h); toast.h = setTimeout(() => t.className = '', ms); };
 const api = (u, o) => fetch(u, o).then(async r => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || r.statusText); return j; });
 const KIND = { card: 'Vita card', umd: 'UMD', disc: 'PS1 disc' };
 const systemKind = t => ({ 1: 'card', 2: 'umd', 3: 'disc' })[t];
 const kindName = k => ({ vita: 'card', psp: 'umd', psx: 'disc' })[k];
 
+// ---- toast, optionally with one action ("Undo")
+function toast(m, bad = false, ms = 2600, action = null) {
+  const t = $('#toast'); t.textContent = m;
+  if (action) { const b = document.createElement('button'); b.textContent = action.label; b.onclick = () => { hideToast(); action.run(); }; t.appendChild(b); }
+  t.className = 'show' + (bad ? ' bad' : ''); document.body.classList.add('toasting');
+  clearTimeout(toast.h); toast.h = setTimeout(hideToast, ms);
+}
+function hideToast() { $('#toast').className = ''; document.body.classList.remove('toasting'); }
+
+// ---- changes made since Float last launched: the user never has to remember to relaunch
+let pending = 0;
+function changed(n = 1) { pending += n; const p = $('#pending'); $('#pending-text').textContent = pending === 1 ? '1 change is not on the Vita yet' : `${pending} changes are not on the Vita yet`; p.classList.add('show'); }
+function clearPending() { pending = 0; $('#pending').classList.remove('show'); }
+
 async function status() {
-  try { const s = await api('/api/status'); $('#c-ftp').classList.toggle('on', s.ftp); $('#c-cmd').classList.toggle('on', s.cmd); if (!$('#ip').value) $('#ip').value = s.ip; }
-  catch (e) { toast('The manager stopped. Start it again.', true); }
+  const c = $('#conn');
+  try {
+    const s = await api('/api/status');
+    if (!$('#ip').value) $('#ip').value = s.ip;
+    const ok = s.ftp && s.cmd;
+    c.classList.toggle('on', ok);
+    c.title = `Files (FTP 1337): ${s.ftp ? 'open' : 'closed'} · Commands (1338): ${s.cmd ? 'open' : 'closed'}`;
+    $('#conn-text').textContent = ok ? `Connected to the Vita at ${s.ip}` : s.ftp || s.cmd ? `The Vita at ${s.ip} answers only partly: is vitacompanion running?` : `Can't reach the Vita at ${s.ip}. Is it awake and on this Wi-Fi?`;
+  } catch (e) { c.classList.remove('on'); $('#conn-text').textContent = 'The manager stopped. Start it again.'; }
 }
 
-async function load() {
-  $('#lists').innerHTML = '<h2>Reading the library from the Vita</h2><div class="rows"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>';
-  let games;
+// ---- library: full load shows skeletons (after 400 ms); quiet refresh re-renders in place
+let games = [];
+async function load(quiet = false) {
+  const lists = $('#lists');
+  const skel = quiet ? null : setTimeout(() => { lists.innerHTML = '<h2>Reading the library from the Vita</h2><div class="rows"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>'; }, 400);
   try { games = await api('/api/games'); }
-  catch (e) { $('#lists').innerHTML = `<div class="rows"><div class="empty"><b>Can't reach the Vita</b>${e.message}. Make sure it is awake, on the same Wi-Fi, running vitacompanion, and that the IP above is right.</div></div>`; return; }
-  if (!games.length) { $('#lists').innerHTML = '<div class="rows"><div class="empty"><b>No games yet</b>Launch RetroFlow Float once on the Vita so it scans your library, then refresh.</div></div>'; return; }
+  catch (e) { clearTimeout(skel); lists.innerHTML = `<div class="rows"><div class="empty"><b>Can't reach the Vita</b>${e.message}. Make sure it is awake, on the same Wi-Fi, running vitacompanion, and that the IP above is right.</div></div>`; return; }
+  clearTimeout(skel);
+  render();
+}
+function render() {
+  const lists = $('#lists');
+  if (!games.length) { lists.innerHTML = '<div class="rows"><div class="empty"><b>No games yet</b>Launch RetroFlow Float once on the Vita so it scans your library, then refresh.</div></div>'; return; }
   const groups = {};
   for (const g of games) (groups[g.system] ||= []).push(g);
-  $('#lists').innerHTML = '';
+  const frag = document.createDocumentFragment();
   for (const [system, list] of Object.entries(groups)) {
     const h = document.createElement('h2'); h.innerHTML = `${system} <span>· ${list.length}</span>`;
     const box = document.createElement('div'); box.className = 'rows';
     for (const g of list) box.appendChild(row(g));
-    $('#lists').append(h, box);
+    frag.append(h, box);
   }
+  lists.replaceChildren(frag);
+}
+// re-read one game's state from the Vita and swap only its row
+async function refreshRow(id) {
+  try { games = await api('/api/games'); } catch (e) { return; }
+  const g = games.find(x => x.id === id);
+  const old = document.querySelector(`.row[data-id="${CSS.escape(id)}"]`);
+  if (g && old) old.replaceWith(row(g)); else render();
 }
 
 function row(g) {
-  const el = document.createElement('div'); el.className = 'row';
+  const el = document.createElement('div'); el.className = 'row' + (g.hidden ? ' hidden' : ''); el.dataset.id = g.id;
   const has = g.discart || g.printed;
   const state = g.discart ? ['on', 'real disc art'] : g.printed ? ['on', 'printed cover'] : ['', 'stock cover'];
   el.innerHTML = `
     ${has ? `<img class="cover ${g.kind !== 'card' ? 'disc' : ''}" src="/label/${g.id}?t=${Date.now()}" alt="">` : g.cover ? `<img class="cover" src="${g.cover}" alt="">` : '<div class="cover"></div>'}
-    <div class="who"><div class="title" title="${g.title}">${g.title}</div><div class="meta"><code>${g.id}</code> · show as
-      <select class="kind" aria-label="Show as"><option value="">${KIND[systemKind(g.type)]} (default)</option><option value="vita">Vita card</option><option value="psp">UMD</option><option value="psx">PS1 disc</option></select>${g.hidden ? ' · hidden in Float' : ''}</div></div>
-    <div class="state"><span class="pill ${state[0]}">${state[1]}</span></div>
+    <div class="who"><div class="title" title="${g.title}">${g.title}</div><div class="meta"><code>${g.id}</code>${g.hidden ? '<span class="pill">hidden in Float</span>' : ''}</div></div>
+    <div class="state"><span class="pill ${state[0]}">${state[1]}</span>
+      <select class="kind" aria-label="Show as" title="Which media Float draws for this game"><option value="">${KIND[systemKind(g.type)]}</option><option value="vita">Vita card</option><option value="psp">UMD</option><option value="psx">PS1 disc</option></select></div>
     <div class="acts"><label class="btn">${g.kind === 'card' ? 'Set cover' : 'Set disc art'} <input type="file" accept="image/*" hidden></label>${has ? '<button class="ghost danger">Remove</button>' : ''}</div>`;
   const sel = el.querySelector('select.kind'); sel.value = g.override || '';
-  sel.onchange = async () => { try { await api('/api/media_type', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: g.id, kind: sel.value }) }); toast(`${g.title}: shown as ${sel.value ? KIND[kindName(sel.value)] : 'default'}. Relaunch Float to apply.`, false, 4000); load(); } catch (e) { toast(e.message, true, 5000); } };
+  sel.onchange = async () => {
+    sel.disabled = true;
+    try { await api('/api/media_type', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: g.id, kind: sel.value }) }); toast(`${g.title}: shown as ${sel.value ? KIND[kindName(sel.value)] : KIND[systemKind(g.type)]}`); changed(); refreshRow(g.id); }
+    catch (e) { toast(e.message, true, 5000); sel.disabled = false; sel.value = g.override || ''; }
+  };
   const pick = async file => {
     if (!file) return;
-    if (g.kind === 'card') return upload(g, file, null);
-    try { const circle = await openEditor(g, file); if (circle) upload(g, file, circle); }
+    if (g.kind === 'card') return upload(g, el, file, null);
+    try { const circle = await openEditor(g, file); if (circle) upload(g, el, file, circle); }
     catch (e) { toast(`${g.title}: ${e.message}`, true, 6000); }
   };
   el.querySelector('input[type=file]').onchange = e => { pick(e.target.files[0]); e.target.value = ''; };
@@ -184,16 +257,27 @@ function row(g) {
   el.addEventListener('dragleave', () => el.classList.remove('drag'));
   el.addEventListener('drop', e => { e.preventDefault(); el.classList.remove('drag'); pick(e.dataTransfer.files[0]); });
   const rm = el.querySelector('.danger');
-  if (rm) rm.onclick = async () => { rm.disabled = true; try { await api(`/api/label/${g.id}?type=${g.type}`, { method: 'DELETE' }); toast(`${g.title}: back to the stock cover`); load(); } catch (e) { toast(e.message, true, 5000); rm.disabled = false; } };
+  if (rm) rm.onclick = async () => {
+    rm.disabled = true; rm.textContent = 'Removing…';
+    try {
+      await api(`/api/label/${g.id}?type=${g.type}`, { method: 'DELETE' });
+      changed(); refreshRow(g.id);
+      toast(`${g.title}: back to the stock cover`, false, 8000, { label: 'Undo', run: async () => {
+        try { await api(`/api/label/${g.id}?type=${g.type}&kind=${g.kind}`, { method: 'PUT' }); toast(`${g.title}: art restored`); refreshRow(g.id); }
+        catch (e) { toast(e.message, true, 5000); }
+      } });
+    } catch (e) { toast(e.message, true, 5000); rm.disabled = false; rm.textContent = 'Remove'; }
+  };
   return el;
 }
 
-async function upload(g, file, circle) {
-  toast(`Uploading ${g.title}…`, false, 60000);
+async function upload(g, el, file, circle) {
+  const btn = el.querySelector('.acts .btn'); const label = btn.firstChild.textContent;
+  btn.firstChild.textContent = 'Uploading… '; btn.style.pointerEvents = 'none'; el.classList.add('busy');
   const fd = new FormData(); fd.append('image', file); fd.append('print', $('#print-on').checked ? '1' : '0');
   if (circle) { fd.append('cx', circle.cx); fd.append('cy', circle.cy); fd.append('r', circle.r); }
-  try { await api(`/api/label/${g.id}?type=${g.type}&kind=${g.kind}`, { method: 'POST', body: fd }); toast(`${g.title}: art uploaded. Relaunch Float to see it.`, false, 4000); load(); }
-  catch (e) { toast(`${g.title}: ${e.message}`, true, 7000); }
+  try { await api(`/api/label/${g.id}?type=${g.type}&kind=${g.kind}`, { method: 'POST', body: fd }); toast(`${g.title}: art uploaded`); changed(); refreshRow(g.id); }
+  catch (e) { toast(`${g.title}: ${e.message}`, true, 7000); btn.firstChild.textContent = label; btn.style.pointerEvents = ''; el.classList.remove('busy'); }
 }
 
 // ---- crop editor: a circle over the image, dragged into place; returns {cx, cy, r} in image pixels
@@ -237,11 +321,49 @@ function openEditor(g, file) {
   });
 }
 
+// ---- options popover
+const opts = $('#opts');
+$('#opts-btn').onclick = e => { e.stopPropagation(); const open = opts.classList.toggle('open'); $('#opts-btn').setAttribute('aria-expanded', String(open)); };
+document.addEventListener('click', e => { if (!opts.contains(e.target)) { opts.classList.remove('open'); $('#opts-btn').setAttribute('aria-expanded', 'false'); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { opts.classList.remove('open'); } });
+
+// ---- batch print with live progress and cancel
+let progTimer = null;
+async function pollPrint() {
+  try {
+    const p = await api('/api/print_progress');
+    $('#progress').classList.add('show');
+    $('#progress .bar i').style.width = p.total ? `${Math.round(100 * p.done / p.total)}%` : '0%';
+    $('#prog-text').textContent = p.total ? `${p.done} of ${p.total}` : 'Listing covers…';
+    if (!p.running) {
+      clearInterval(progTimer); progTimer = null;
+      $('#progress').classList.remove('show');
+      if (p.error) toast(p.error, true, 6000); else { toast(p.cancel ? `Stopped after ${p.count} covers` : `Done: ${p.count} covers printed`); if (p.count) changed(p.count); }
+      load(true);
+    }
+  } catch (e) { clearInterval(progTimer); progTimer = null; $('#progress').classList.remove('show'); }
+}
+$('#print-all').onclick = async () => {
+  opts.classList.remove('open');
+  if (!confirm('Rewrite the printed version of every stock cover? This takes about a minute and does not touch your real disc art.')) return;
+  try { await api('/api/print_all', { method: 'POST' }); $('#progress').classList.add('show'); $('#prog-text').textContent = 'Listing covers…'; $('#progress .bar i').style.width = '0%'; progTimer = setInterval(pollPrint, 1000); }
+  catch (err) { toast(err.message, true, 5000); }
+};
+$('#prog-cancel').onclick = () => { api('/api/print_cancel', { method: 'POST' }).catch(() => {}); $('#prog-text').textContent = 'Stopping…'; };
+
+async function relaunch(btn) {
+  btn.disabled = true; const t = btn.textContent; btn.textContent = 'Relaunching…';
+  try { await api('/api/relaunch', { method: 'POST' }); toast('RetroFlow Float launched'); clearPending(); }
+  catch (err) { toast(err.message, true, 5000); }
+  btn.disabled = false; btn.textContent = t;
+}
+$('#relaunch').onclick = e => relaunch(e.target);
+$('#pending-go').onclick = e => relaunch(e.target);
 $('#refresh').onclick = () => { status(); load(); };
-$('#save-ip').onclick = async () => { await api('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ip: $('#ip').value.trim() }) }); toast('IP saved'); status(); load(); };
-$('#relaunch').onclick = async e => { e.target.disabled = true; toast('Relaunching RetroFlow Float…', false, 8000); try { await api('/api/relaunch', { method: 'POST' }); toast('RetroFlow Float launched'); } catch (err) { toast(err.message, true, 5000); } e.target.disabled = false; };
-$('#print-all').onclick = async e => { e.target.disabled = true; toast('Printing every cover, about a minute…', false, 180000); try { const r = await api('/api/print_all', { method: 'POST' }); toast(`Done: ${r.count} covers printed`); load(); } catch (err) { toast(err.message, true, 5000); } e.target.disabled = false; };
+$('#ip-form').onsubmit = async e => { e.preventDefault(); try { await api('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ip: $('#ip').value.trim() }) }); toast('IP saved'); status(); load(); } catch (err) { toast(err.message, true, 5000); } };
 $('#wall').onchange = async e => { const f = e.target.files[0]; if (!f) return; const fd = new FormData(); fd.append('image', f); toast('Uploading wallpaper…', false, 30000); try { const r = await api('/api/wallpaper', { method: 'POST', body: fd }); toast(`Wallpaper added as ${r.name}. Pick it in Float's settings.`, false, 6000); } catch (err) { toast(err.message, true, 5000); } e.target.value = ''; };
+// a print job may already be running from an earlier page load
+api('/api/print_progress').then(p => { if (p.running) progTimer = setInterval(pollPrint, 1000); }).catch(() => {});
 status(); load();
 </script>
 </body>
