@@ -77,6 +77,7 @@ summary small { color: var(--fg-dim); font-weight: 400; margin-left: 6px; }
   <button class="btn" id="b-reflect" aria-pressed="false">Reflection</button>
   <button class="btn" id="b-grime" aria-pressed="false">Grime</button>
   <button class="btn" id="b-wire" aria-pressed="false">Wire</button>
+  <button class="btn" id="b-reset">Reset view</button>
   <button class="btn" id="b-disc" aria-pressed="false" hidden>Disc label</button>
   <button class="btn" id="b-ab" hidden>Hold: compare</button>
 </div>
@@ -251,6 +252,20 @@ const S = { kind: 'vita', set: scene.sets[0], rx: 0, ry: 0, zoom: 1, gloss: true
   art: { vita: scene.art.vita[0], psp: scene.art.psp[0], psx: scene.art.psx[0] }, bg: scene.art.bg.includes('bg_studio.png') ? 'bg_studio.png' : scene.art.bg[0],
   hidden: { vita: new Set(), psp: new Set(), psx: new Set() } };
 try { Object.assign(S, JSON.parse(localStorage.getItem('fmv') || '{}'), { hidden: S.hidden }); } catch (e) {}
+// sanitise whatever came back from storage or a hot republish: finite, clamped, known names only
+function sane() {
+  const num = (v, d, lo, hi) => (typeof v === 'number' && isFinite(v)) ? Math.max(lo, Math.min(hi, v)) : d;
+  S.rx = num(S.rx, 0, -89, 89); S.ry = num(S.ry, 0, -180, 180); S.zoom = num(S.zoom, 1, 1, 6);
+  if (!KINDS.includes(S.kind)) S.kind = 'vita';
+  if (!scene.sets.includes(S.set)) S.set = scene.sets[0];
+  S.reflect = !!(S.reflect && scene.reflectOn);
+  S.grime = !!(S.grime && scene.grime);
+  for (const k of ['gloss', 'wire', 'spin', 'idle', 'disc']) S[k] = !!S[k];
+  if (typeof S.art !== 'object' || !S.art) S.art = {};
+  for (const k of KINDS) if (!scene.art[k].includes(S.art[k])) S.art[k] = scene.art[k][0];
+  if (!scene.art.bg.includes(S.bg)) S.bg = scene.art.bg.includes('bg_studio.png') ? 'bg_studio.png' : scene.art.bg[0];
+}
+sane();
 if (!scene.sets.includes(S.set)) S.set = scene.sets[0];
 const hashKind = location.hash.replace('#', ''); if (KINDS.includes(hashKind)) S.kind = hashKind;   // #vita #psp #psx open that media
 const save = () => { try { localStorage.setItem('fmv', JSON.stringify({ kind: S.kind, set: S.set, rx: S.rx, ry: S.ry, zoom: S.zoom, gloss: S.gloss, grime: S.grime, art: S.art, bg: S.bg })); } catch (e) {} };
@@ -326,7 +341,7 @@ async function frame() {
 
 // ---- UI --------------------------------------------------------------------------------------
 function setKind(k) {
-  S.kind = k; save();
+  S.kind = k; save(); Object.assign(discState, { x: 0, y: 0, vx: 0, vy: 0, spin: 0, lastRz: null });
   for (const b of $('kinds').children) b.setAttribute('aria-pressed', String(b.dataset.kind === k));
   $('b-disc').hidden = !scene.labeldisc[k];
   buildLayers(); buildArt();
@@ -379,6 +394,7 @@ if (scene.sets.length > 1) {
 const toggle = (id, key) => { const b = $(id); b.setAttribute('aria-pressed', String(S[key])); b.onclick = () => { S[key] = !S[key]; b.setAttribute('aria-pressed', String(S[key])); save(); }; };
 toggle('b-spin', 'spin'); toggle('b-idle', 'idle'); toggle('b-gloss', 'gloss'); toggle('b-grime', 'grime'); toggle('b-reflect', 'reflect'); toggle('b-wire', 'wire'); toggle('b-disc', 'disc');
 const pose = (rx, ry) => { S.rx = rx; S.ry = ry; S.spin = false; $('b-spin').setAttribute('aria-pressed', 'false'); $('pitch').value = rx; $('yaw').value = ry; save(); };
+$('b-reset').onclick = () => { try { localStorage.removeItem('fmv'); } catch (e) {} location.reload(); };
 $('b-front').onclick = () => pose(0, 0); $('b-back').onclick = () => pose(0, 180); $('b-edge').onclick = () => pose(0, 80);
 $('zoom').oninput = e => { S.zoom = +e.target.value; $('zoom-v').textContent = S.zoom.toFixed(2) + 'x'; save(); };
 $('pitch').oninput = e => { S.rx = +e.target.value; save(); };
@@ -400,7 +416,7 @@ stage.addEventListener('wheel', e => { e.preventDefault(); S.zoom = clamp(S.zoom
 
 // hot republish: keep the pose
 window.claude?.hot?.snapshot?.(() => ({ rx: S.rx, ry: S.ry, zoom: S.zoom, kind: S.kind }));
-const hot = window.claude?.hot?.data; if (hot) Object.assign(S, hot);
+const hot = window.claude?.hot?.data; if (hot) { Object.assign(S, hot); sane(); }
 
 $('zoom').value = S.zoom; $('zoom-v').textContent = S.zoom.toFixed(2) + 'x'; $('pitch').value = S.rx; $('yaw').value = S.ry;
 setKind(S.kind); applyBg(); luaCheck();
