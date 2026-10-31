@@ -1,3 +1,32 @@
+# VITACART
+
+**RetroFlow Float**: a fork of [RetroFlow Launcher](https://github.com/jimbob4000/RetroFlow-Launcher) by jimbob4000
+(itself built on [HexFlow Launcher](https://github.com/VitaHEX-Games/HexFlow-Launcher)) that replaces the box covers in
+the coverflow with floating physical media: PS Vita game cards, PSP UMDs, PS1 discs and jewel cases, drawn as real
+3D objects with cover art, gloss, a loose UMD disc and gyro tilt. The look is inspired by
+[Socket](https://depmots.com/socket); nothing from it is used.
+
+It installs beside your normal RetroFlow (title `RFFLOAT01`, data in `ux0:/data/RetroFlowFloat/`) and reads your
+existing ROMS, COVERS and BACKGROUNDS folders without touching them. The setting *Reflections* cycles
+Off / On / Floating media.
+
+## Install
+1. Install `release/RetroFlowFloat.vpk` with VitaShell (once; later builds can be pushed with `fork/floating-media/deploy.sh`).
+2. Launch it once so it scans your library. The models are copied to the card on first run.
+3. Optional: run the **Art Manager** from `release/ArtManager/` (one file, Windows/Mac/Linux) to give games real disc
+   scans, printed-look stickers, or to choose which media a game is shown as. See `release/ArtManager/README.txt`.
+
+## Source layout
+- `src/index.lua`: the launcher; the Float module starts at `-- FLOATING PHYSICAL MEDIA (fork)`.
+- `fork/floating-media/gen.py`: builds every model and texture into `DATA/` from traced drawings of the real items.
+- `fork/floating-media/manager-go/`: the Art Manager (Go, single executable).
+- `fork/floating-media/viewport/`: a browser preview of the models (Three.js) used to check changes before a build.
+- `fork/floating-media/rebuild_float.py`, `deploy.sh`: build the VPK from the RetroFlow one and push it to a Vita over vitacompanion.
+
+Licence: MIT, as RetroFlow. Credits: jimbob4000 (RetroFlow, lpp-vita build), VitaHEX (HexFlow), depmots (Socket, the inspiration).
+
+---
+
 
 # RetroFlow Launcher
 
