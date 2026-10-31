@@ -13,6 +13,11 @@ from make_sidebyside import patch_index
 OLD_VPK, INDEX, MEDIA, OUT = sys.argv[1:5]
 report = []
 index = patch_index(open(INDEX, encoding="utf-8").read(), report)
+import hashlib
+h = hashlib.md5()
+for f in sorted(os.listdir(MEDIA)):
+    h.update(f.encode()); h.update(open(os.path.join(MEDIA, f), "rb").read())
+index = index.replace('FLOAT_DATA_VERSION_PLACEHOLDER', h.hexdigest()[:16])   # the card copy of DATA is refreshed only when the files change
 media = sorted(os.listdir(MEDIA))
 with zipfile.ZipFile(OLD_VPK) as src, zipfile.ZipFile(OUT + ".tmp", "w", zipfile.ZIP_DEFLATED) as dst:
     kept = 0

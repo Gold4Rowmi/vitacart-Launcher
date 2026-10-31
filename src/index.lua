@@ -13987,6 +13987,11 @@ function FLOAT.load()
     -- never load while the launcher's cover thread is decoding (Graphics.loadImageAsync):
     -- lpp's image loader is not thread-safe
     if System.getAsyncState() == 0 then return end
+    -- only load while the user is not scrolling: a file costs one slow frame, so the list
+    -- stays smooth under input and the models fill in during the pauses
+    local now = Timer.getTime(FLOAT.timer)
+    if FLOAT.input_active() then FLOAT.last_input = now end
+    if FLOAT.last_input and now - FLOAT.last_input < 300 and FLOAT.steps then return end
     if not FLOAT.steps then
         FLOAT.load_t0 = Timer.getTime(FLOAT.timer)
         FLOAT.log("loading...")
@@ -14009,6 +14014,21 @@ function FLOAT.load()
     end
 end
 
+-- any button, stick deflection or touch this frame (the launcher's own reads: pad, mx/my, x1)
+FLOAT.NAV_BUTTONS = { SCE_CTRL_UP, SCE_CTRL_DOWN, SCE_CTRL_LEFT, SCE_CTRL_RIGHT, SCE_CTRL_CROSS, SCE_CTRL_CIRCLE,
+    SCE_CTRL_SQUARE, SCE_CTRL_TRIANGLE, SCE_CTRL_LTRIGGER, SCE_CTRL_RTRIGGER, SCE_CTRL_START, SCE_CTRL_SELECT }
+function FLOAT.input_active()
+    -- only real buttons: the raw mask also carries state bits (headphones plugged in, ...)
+    if pad then
+        for _, b in ipairs(FLOAT.NAV_BUTTONS) do
+            if b and Controls.check(pad, b) then return true end
+        end
+    end
+    if mx and my and (math.abs(mx - 128) > 40 or math.abs(my - 128) > 40) then return true end
+    if x1 then return true end
+    return false
+end
+
 function FLOAT.load_fail(err)
     FLOAT.log(string.format("load_assets %d ms ok=false %s", Timer.getTime(FLOAT.timer) - (FLOAT.load_t0 or 0), tostring(err)))
     FLOAT.log_flush()
@@ -14025,37 +14045,72 @@ local function float_img(path)
 end
 
 -- Build the load queue: one step per file, in the same order the old one-shot loader used
+FLOAT.DATA_VERSION = "FLOAT_DATA_VERSION_PLACEHOLDER"   -- stamped by rebuild_float.py
+FLOAT.CARD_DATA = "ux0:/data/RetroFlowFloat/DATA/"
 function FLOAT.build_steps()
     local S = {}
     local function step(f) S[#S + 1] = f end
-    step(function() FLOAT.shadow_img = Graphics.loadImage("app0:/DATA/float_shadow.png") end)
-    step(function() FLOAT.shadow = Render.loadObject("app0:/DATA/float_shadow.obj", FLOAT.shadow_img) end)
-    step(function() FLOAT.gloss_img = float_img("app0:/DATA/float_gloss.png") end)
-    step(function() FLOAT.sheen_img = float_img("app0:/DATA/float_sheen.png") end)
-    step(function() FLOAT.env_img = float_img("app0:/DATA/float_env.png") end)
+    -- The models are copied from the app (app0: opens are slow, ~75 ms a file) to Float's data
+    -- folder on the card (~30 ms) once per build; the copy itself runs through the queue.
+    local marker = FLOAT.CARD_DATA .. "version.txt"
+    local fresh = false
+    if System.doesFileExist(marker) then
+        local f = System.openFile(marker, FREAD)
+        local v = System.readFile(f, 64)
+        System.closeFile(f)
+        fresh = (v == FLOAT.DATA_VERSION)
+    end
+    if not fresh then
+        FLOAT.copying = true   -- the normal boxes stay visible during this one-off copy
+        System.createDirectory(FLOAT.CARD_DATA)
+        for _, name in ipairs(System.listDirectory("app0:/DATA") or {}) do
+            local n = type(name) == "table" and name.name or name
+            if type(n) == "string" and n:sub(1, 6) == "float_" then
+                step(function() System.copyFile("app0:/DATA/" .. n, FLOAT.CARD_DATA .. n) end)
+            end
+        end
+        step(function()
+            local f = System.openFile(marker, FCREATE)
+            System.writeFile(f, FLOAT.DATA_VERSION, #FLOAT.DATA_VERSION)
+            System.closeFile(f)
+            FLOAT.copying = false
+        end)
+    end
+    FLOAT.DATA = FLOAT.CARD_DATA
+    step(function() FLOAT.log("data dir " .. FLOAT.DATA .. (fresh and " (fresh)" or " (copied)")) end)
+    step(function() FLOAT.shadow_img = Graphics.loadImage(FLOAT.DATA .. "float_shadow.png") end)
+    step(function() FLOAT.shadow = Render.loadObject(FLOAT.DATA .. "float_shadow.obj", FLOAT.shadow_img) end)
+    step(function() FLOAT.gloss_img = float_img(FLOAT.DATA .. "float_gloss.png") end)
+    step(function() FLOAT.sheen_img = float_img(FLOAT.DATA .. "float_sheen.png") end)
+    step(function() FLOAT.env_img = float_img(FLOAT.DATA .. "float_env.png") end)
     step(function()
-        FLOAT.shade_img = float_img("app0:/DATA/float_shade.png")
+        FLOAT.shade_img = float_img(FLOAT.DATA .. "float_shade.png")
         FLOAT.VARIANT_TEX = { gloss = FLOAT.gloss_img, refl = FLOAT.env_img, shade = FLOAT.shade_img }
     end)
-    step(function() FLOAT.glass_img = float_img("app0:/DATA/float_glass.png") end)
-    step(function() FLOAT.grime_img = float_img("app0:/DATA/float_grime.png") end)
-    step(function() FLOAT.shine_img = float_img("app0:/DATA/float_shine.png") end)
+    step(function() FLOAT.glass_img = float_img(FLOAT.DATA .. "float_glass.png") end)
+    if FLOAT.GRIME then step(function() FLOAT.grime_img = float_img(FLOAT.DATA .. "float_grime.png") end) end
+    step(function() FLOAT.shine_img = float_img(FLOAT.DATA .. "float_shine.png") end)
 
+    local later = {}   -- highlight/reflection sets: loaded after every kind is drawable
     for kind, names in pairs(FLOAT.LAYERS) do
-        local m = { layers = {}, gloss = {} }
+        local m = { layers = {}, gloss = {}, reflect = {} }
         step(function()
             FLOAT.log(kind .. " body @" .. Timer.getTime(FLOAT.timer))
-            m.body_img = float_img("app0:/DATA/float_" .. kind .. "_body.png")
+            m.body_img = float_img(FLOAT.DATA .. "float_" .. kind .. "_body.png")
         end)
         for _, name in ipairs(names) do
             local vname = name:gsub("^back", "")   -- backrefl uses the refl texture
             vname = vname:match("^(%a+)_") or vname   -- gloss_arrow / backgloss_marks use the gloss texture
-            step(function() FLOAT.log(kind .. " " .. name .. " @" .. Timer.getTime(FLOAT.timer)) end)
             if vname == "gloss" or vname == "refl" or vname == "shade" then   -- the VARIANT_TEX keys
                 local set, imgs = {}, {}
+                -- the layer takes its place in the painter's order now; its steps fill in later
+                step(function()
+                    if name == "gloss" then m.gloss = set end
+                    table.insert(m.layers, { name = name, set = set, imgs = imgs, back = vname ~= name })
+                end)
                 for i = 0, FLOAT.GLOSS_STEPS - 1 do
-                    step(function()
-                        local base = "app0:/DATA/float_" .. kind .. "_" .. name .. i
+                    later[#later + 1] = function()
+                        local base = FLOAT.DATA .. "float_" .. kind .. "_" .. name .. i
                         local tex = FLOAT.VARIANT_TEX[vname]
                         if System.doesFileExist(base .. ".png") then
                             -- baked step: a quad with the highlight pre-multiplied into its own texture
@@ -14063,52 +14118,50 @@ function FLOAT.build_steps()
                             imgs[i] = tex
                         end
                         set[i] = Render.loadObject(base .. ".obj", tex)
-                    end)
+                    end
                 end
-                step(function()
-                    if name == "gloss" then m.gloss = set end
-                    table.insert(m.layers, { name = name, set = set, imgs = imgs, back = vname ~= name })
-                end)
             elseif name == "shine" then
-                step(function() table.insert(m.layers, { name = name, shine = true, obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_shine.obj", FLOAT.shine_img) }) end)
+                step(function() table.insert(m.layers, { name = name, shine = true, obj = Render.loadObject(FLOAT.DATA .. "float_" .. kind .. "_shine.obj", FLOAT.shine_img) }) end)
             elseif name == "grime" or name == "backgrime" then
-                step(function() table.insert(m.layers, { name = name, grime = true, back = name == "backgrime",
-                    obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_" .. name .. ".obj", FLOAT.grime_img) }) end)
+                if FLOAT.GRIME then   -- off: neither loaded nor listed
+                    step(function() table.insert(m.layers, { name = name, grime = true, back = name == "backgrime",
+                        obj = Render.loadObject(FLOAT.DATA .. "float_" .. kind .. "_" .. name .. ".obj", FLOAT.grime_img) }) end)
+                end
             elseif name == "glass" or name == "backglass" then
-                step(function() table.insert(m.layers, { name = name, obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_" .. name .. ".obj", FLOAT.glass_img) }) end)
+                step(function() table.insert(m.layers, { name = name, obj = Render.loadObject(FLOAT.DATA .. "float_" .. kind .. "_" .. name .. ".obj", FLOAT.glass_img) }) end)
             elseif name:match("^band%u$") then
                 -- side wall in four pieces: the piece nearest the camera is drawn last
                 step(function() table.insert(m.layers, { name = name, band = true, side = name:sub(-1),
-                    obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_" .. name .. ".obj", m.body_img) }) end)
+                    obj = Render.loadObject(FLOAT.DATA .. "float_" .. kind .. "_" .. name .. ".obj", m.body_img) }) end)
             elseif name:match("^wall") then
                 -- inner wall of the window, one arc per side; only the far side is ever drawn
                 step(function() table.insert(m.layers, { name = name, side = name:sub(-1), back = name:find("back") ~= nil,
-                    obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_" .. name .. ".obj", m.body_img) }) end)
+                    obj = Render.loadObject(FLOAT.DATA .. "float_" .. kind .. "_" .. name .. ".obj", m.body_img) }) end)
             elseif name == "sheen" then
-                step(function() table.insert(m.layers, { name = "sheen", obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_sheen.obj", FLOAT.sheen_img) }) end)
+                step(function() table.insert(m.layers, { name = "sheen", obj = Render.loadObject(FLOAT.DATA .. "float_" .. kind .. "_sheen.obj", FLOAT.sheen_img) }) end)
             elseif name == "label" then
                 step(function()
-                    m.label = Render.loadObject("app0:/DATA/float_" .. kind .. "_label.obj", imgCoverTmp)
+                    m.label = Render.loadObject(FLOAT.DATA .. "float_" .. kind .. "_label.obj", imgCoverTmp)
                     table.insert(m.layers, { name = "label", obj = m.label })
                 end)
             else
-                step(function() table.insert(m.layers, { name = name, obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_" .. name .. ".obj", m.body_img) }) end)
+                step(function() table.insert(m.layers, { name = name, obj = Render.loadObject(FLOAT.DATA .. "float_" .. kind .. "_" .. name .. ".obj", m.body_img) }) end)
             end
         end
         if kind == "psp" then
-            step(function() m.labeldisc = Render.loadObject("app0:/DATA/float_psp_labeldisc.obj", imgCoverTmp) end)
+            step(function() m.labeldisc = Render.loadObject(FLOAT.DATA .. "float_psp_labeldisc.obj", imgCoverTmp) end)
         end
-        -- floor reflection: mirrored copies of the base layers (glass layers use the glass image)
-        m.reflect = {}
-        for _, name in ipairs(FLOAT.REFLECT_LAYERS[kind] or {}) do
-            step(function()
+        -- floor reflection: mirrored copies of the base layers (only when the feature is on)
+        for _, name in ipairs(FLOAT.REFLECT and FLOAT.REFLECT_LAYERS[kind] or {}) do
+            later[#later + 1] = function()
                 local img = (name == "glass") and FLOAT.glass_img or (name == "label" and imgCoverTmp or m.body_img)
-                table.insert(m.reflect, { name = name, obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_r_" .. name .. ".obj", img) })
-            end)
+                table.insert(m.reflect, { name = name, obj = Render.loadObject(FLOAT.DATA .. "float_" .. kind .. "_r_" .. name .. ".obj", img) })
+            end
         end
-        -- the kind becomes drawable only once every one of its files is in
-        step(function() FLOAT.media[kind] = m end)
+        -- drawable from here (base layers only; highlight sets arrive in the background)
+        step(function() FLOAT.media[kind] = m; FLOAT.log(kind .. " drawable @" .. Timer.getTime(FLOAT.timer)) end)
     end
+    for _, f in ipairs(later) do step(f) end
     return S
 end
 
@@ -14315,7 +14368,7 @@ end
 function FLOAT.draw_shadow(px, py, pz, ry, kind, rx)
     -- one soft blob under every item (nothing until the model is in: files load over frames)
     if not FLOAT.shadow then return end
-    Render.drawModel(FLOAT.shadow, px, py + 0.003, pz, 0, ry, 0)
+    Render.drawModel(FLOAT.shadow, px, py + 0.003, pz, 0, 0, 0)
 end
 
 -- Mirror image of the item in the floor (y = py), fading out with distance from the floor line
@@ -14380,7 +14433,7 @@ function FLOAT.draw_layers(kind, icon, disc_label, px, cy, pz, rx, ry, rz, with_
                 local yaw = L.back and (ry % 360) - 180 or ((ry + 180) % 360) - 180
                 local span = L.name:find("gloss") and 26 or 55
                 local g = math.floor(FLOAT.clamp((yaw / span + 1) / 2, 0, 1) * (FLOAT.GLOSS_STEPS - 1) + 0.5)
-                Render.drawModel(L.set[g], px, cy, pz, rx, ry, rz)
+                if L.set[g] then Render.drawModel(L.set[g], px, cy, pz, rx, ry, rz) end   -- nil while the set is still loading
             end
         elseif L.side then
             -- +yaw moves the right side away from the viewer, +pitch moves the top nearer;
@@ -14682,7 +14735,13 @@ function FLOAT.draw_cover_real(x, y, text, icon, sel, apptype, cur_p)
         fl_y, fl_z, fl_rx, fl_ry, fl_rz = FLOAT.offsets(abs_side_factor, cur_p)
         local cur_file = FLOAT.cur_def and cur_p and FLOAT.cur_def[cur_p]
         local kind = FLOAT.media_kind(apptype, cur_file and cur_file.name)
-        if kind and FLOAT.media[kind] then   -- the plain box until this kind's files are all in
+        if kind and not FLOAT.media[kind] then
+            -- files still loading: only the blob, never the box (except during the one-off copy)
+            if not FLOAT.copying then
+                FLOAT.draw_shadow(x + extrax, y + extray, -5 - extraz - zoom + fl_z, math.deg(rot) + fl_ry)
+                return
+            end
+        elseif kind then
             FLOAT.draw_media(kind, icon, x + extrax, y + extray, -5 - extraz - zoom + fl_z,
                 fl_y, fl_rx, math.deg(rot) + fl_ry, fl_rz, abs_side_factor, cur_p)
             return

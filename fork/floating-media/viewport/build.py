@@ -31,7 +31,13 @@ Render = {
     drawModel = function(m, x, y, z, rx, ry, rz) PY_DRAW(m.path, tostring(m.tex), x, y, z, rx, ry, rz) end,
     setCamera = function() end,
 }
-System = { getAsyncState = function() return 1 end, doesFileExist = function(p)
+FREAD = 0
+System = { getAsyncState = function() return 1 end, createDirectory = function() end, copyFile = function() end,
+    openFile = function() return 1 end, writeFile = function() end, closeFile = function() end,
+    listDirectory = function() return {} end, readFile = function() return "FLOAT_DATA_VERSION_PLACEHOLDER" end,
+    doesFileExist = function(p)
+    if p:find("version%.txt$") then return true end
+    p = p:gsub("^ux0:/data/RetroFlowFloat/DATA/", "app0:/DATA/")
     local rel = p:match("^app0:/DATA/(.*)$")
     if rel and DATA_DIR then local f = io.open(DATA_DIR .. "/" .. rel, "rb"); if f then f:close(); return true end end
     return false

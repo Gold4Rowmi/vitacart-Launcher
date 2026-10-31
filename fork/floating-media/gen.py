@@ -1223,16 +1223,10 @@ def shadow():
     w, dpt = 1.0, 0.55
     m.quad(((-w, 0, -dpt), (0, 0)), ((w, 0, -dpt), (1, 0)), ((w, 0, dpt), (1, 1)), ((-w, 0, dpt), (0, 1)))
     m.write("float_shadow")
-    # contact shadow: a wide soft halo plus a tight dark core where the item meets the floor
+    # one soft static blob under the item: wide, faint, no core (it never turns with the item)
     img = Image.new("RGBA", (256, 256), (0, 0, 0, 0))
-    ImageDraw.Draw(img).ellipse([24, 84, 232, 172], fill=(0, 0, 0, 70))
-    img = img.filter(ImageFilter.GaussianBlur(30))
-    mid = Image.new("RGBA", (256, 256), (0, 0, 0, 0))
-    ImageDraw.Draw(mid).ellipse([52, 108, 204, 148], fill=(0, 0, 0, 120))
-    img.alpha_composite(mid.filter(ImageFilter.GaussianBlur(12)))
-    core = Image.new("RGBA", (256, 256), (0, 0, 0, 0))
-    ImageDraw.Draw(core).ellipse([80, 120, 176, 136], fill=(0, 0, 0, 190))
-    img.alpha_composite(core.filter(ImageFilter.GaussianBlur(5)))
+    ImageDraw.Draw(img).ellipse([30, 92, 226, 164], fill=(0, 0, 0, 95))
+    img = img.filter(ImageFilter.GaussianBlur(34))
     img.save(f"{OUT}/float_shadow.png")
 
 
