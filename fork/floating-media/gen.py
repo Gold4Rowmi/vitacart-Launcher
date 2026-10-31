@@ -591,11 +591,11 @@ def vita_card():
     in_pocket = lambda mx, my: any(point_in_poly(mx, my, poly) for poly in pockets)
 
     # --- back
-    def marks(g, s):
-        uv = planar(bb, s, 0.5, 0, 1, mirror=True)
-        for i in list(VT["logo"]) + list(VT["made_in"]) + list(VT["ce"]):
-            glyph_mesh(g, vtrace_polys(i, back), zb - 0.002, uv)
-    variant_set("float_vita_backgloss_marks", marks)
+    # glossy black logo / CE / MADE IN CHINA: baked mask x highlight per step on one quad
+    # (the glyph-mesh version was 24 x 2600 vertices = 96% of Float's launch time)
+    baked_variant_set("float_vita_backgloss_marks",
+                      [poly for i in list(VT["logo"]) + list(VT["made_in"]) + list(VT["ce"]) for poly in vtrace_polys(i, back)],
+                      bb, zb - 0.002, mirror=True)
     def pins(g, s):                        # the gold contacts catch the light too
         uv = planar(bb, s, 0.5, 0, 1, mirror=True)
         for i in VT["gold"]:
@@ -1268,9 +1268,9 @@ def sheen_texture():
     img.filter(ImageFilter.GaussianBlur(1.2)).save(f"{OUT}/float_sheen.png")
 
 
-def gloss_texture():
-    """Highlight that slides across a glossy surface: a wide soft sheen with a sharp bright
-    streak inside it, slanted like a softbox reflection."""
+def gloss_alpha():
+    """Alpha of the sliding highlight (rows x cols, 0..1): a wide soft sheen with a sharp
+    bright streak inside it, slanted like a softbox reflection."""
     import numpy as np
     w, h = 512, 256
     ys, xs = np.mgrid[0:h, 0:w].astype(np.float32)
@@ -1278,11 +1278,67 @@ def gloss_texture():
     sheen = np.exp(-(u / 48.0) ** 2) * 0.30
     streak = np.exp(-(u / 7.0) ** 2) * 0.60
     streak2 = np.exp(-((u + 26) / 4.0) ** 2) * 0.22
-    a = np.clip(sheen + streak + streak2, 0, 1)
-    img = np.zeros((h, w, 4), np.uint8)
+    return np.clip(sheen + streak + streak2, 0, 1)
+
+
+def gloss_texture():
+    """Highlight that slides across a glossy surface (see gloss_alpha)."""
+    import numpy as np
+    a = gloss_alpha()
+    img = np.zeros((*a.shape, 4), np.uint8)
     img[..., :3] = 255
     img[..., 3] = (a * 255).astype(np.uint8)
     Image.fromarray(img, "RGBA").filter(ImageFilter.GaussianBlur(1.0)).save(f"{OUT}/float_gloss.png")
+
+
+def baked_variant_set(name, polys, bb, z, mirror=False, steps=GLOSS_STEPS, width=320):
+    """Same look as variant_set(glyph_mesh ...) at a fraction of the load cost: instead of
+    one glyph mesh per highlight step (thousands of vertices each, and lpp-vita's OBJ loader
+    is quadratic in them) write one 4-vertex quad per step plus a small texture holding the
+    glyph mask times the highlight for that step. The highlight is sampled exactly as the
+    mesh version did: planar(bb, s, 0.5, 0, 1, mirror) over the whole face."""
+    import numpy as np
+    from PIL import ImageChops
+    gl = gloss_alpha()
+    gh, gw = gl.shape
+    polys = [clean_poly(p) for p in polys if len(p) > 2]
+    x0, y0, x1, y1 = bbox([p for poly in polys for p in poly])
+    pad = 0.03 * max(x1 - x0, y1 - y0)
+    x0, y0, x1, y1 = x0 - pad, y0 - pad, x1 + pad, y1 + pad
+    mw, mh = x1 - x0, y1 - y0
+    W = width
+    H = max(16, int(round(W * mh / mw / 4)) * 4)
+    ss = 4
+    mask = Image.new("1", (W * ss, H * ss), 0)
+    for poly in polys:
+        m = Image.new("1", (W * ss, H * ss), 0)
+        ImageDraw.Draw(m).polygon([((x - x0) / mw * W * ss, (y1 - y) / mh * H * ss) for x, y in poly], fill=1)
+        mask = ImageChops.logical_xor(mask, m)
+    mask = np.asarray(mask.convert("L").resize((W, H), Image.LANCZOS)).astype(np.float32) / 255.0
+    # model coordinate of every texel centre
+    px = (np.arange(W, dtype=np.float32) + 0.5) / W
+    py = (np.arange(H, dtype=np.float32) + 0.5) / H
+    mx = x0 + px[None, :] * mw + 0 * py[:, None]
+    my = y1 - py[:, None] * mh + 0 * px[None, :]
+    bx0, by0, bx1, by1 = bb
+    fx = (bx1 - mx) / (bx1 - bx0) if mirror else (mx - bx0) / (bx1 - bx0)
+    fy = (by1 - my) / (by1 - by0)
+    gy = np.clip(fy * (gh - 1), 0, gh - 1)
+    iy0 = np.floor(gy).astype(int); iy1 = np.minimum(iy0 + 1, gh - 1); ty = gy - iy0
+    quad = Mesh()
+    uvf = planar((x0, y0, x1, y1))
+    quad.quad(((x0, y0, z), uvf(x0, y0)), ((x1, y0, z), uvf(x1, y0)), ((x1, y1, z), uvf(x1, y1)), ((x0, y1, z), uvf(x0, y1)))
+    for i in range(steps):
+        s = 0.5 * i / (steps - 1)
+        gx = np.clip((s + 0.5 * fx) * (gw - 1), 0, gw - 1)
+        ix0 = np.floor(gx).astype(int); ix1 = np.minimum(ix0 + 1, gw - 1); tx = gx - ix0
+        a = ((gl[iy0, ix0] * (1 - tx) + gl[iy0, ix1] * tx) * (1 - ty)
+             + (gl[iy1, ix0] * (1 - tx) + gl[iy1, ix1] * tx) * ty)
+        img = np.zeros((H, W, 4), np.uint8)
+        img[..., :3] = 255
+        img[..., 3] = np.clip(a * mask * 255, 0, 255).astype(np.uint8)
+        Image.fromarray(img, "RGBA").save(f"{OUT}/{name}{i}.png")
+        quad.write(f"{name}{i}")
 
 
 

@@ -20,7 +20,12 @@ Render = {
     end,
     setCamera = function() end,
 }
-System = { doesFileExist = function(p) return p:find("umd_real") ~= nil end }
+System = { doesFileExist = function(p)
+    if p:find("umd_real") then return true end
+    local rel = p:match("^app0:/DATA/(.*)$")
+    if rel and DATA_DIR then local f = io.open(DATA_DIR .. "/" .. rel, "rb"); if f then f:close(); return true end end
+    return false
+end }
 Controls = {
     enableGyro = function() end, disableGyro = function() end,
     readAccel = function() return 0.30 * math.sin(sim_t * 1.3), -0.6 + 0.18 * math.sin(sim_t * 0.9), -0.8 end,

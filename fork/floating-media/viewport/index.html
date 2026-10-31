@@ -165,7 +165,7 @@ function drawList(kind, disc, rx, ry, rz, withGloss, grimeOn = scene.grime, loos
         const yaw = L.back ? mod(ry, 360) - 180 : mod(ry + 180, 360) - 180;
         const span = L.name.includes('gloss') ? 26 : 55;
         const g = Math.floor(clamp((yaw / span + 1) / 2, 0, 1) * (STEPS - 1) + 0.5);
-        out.push({ obj: L.set[g], tex: L.tex, rz, layer: L.name });
+        out.push({ obj: L.set[g], tex: L.texset ? L.texset[g] : L.tex, rz, layer: L.name });
       }
     } else if (L.side) {
       const sy = Math.sin(rad(ry)), sx = Math.sin(rad(rx));

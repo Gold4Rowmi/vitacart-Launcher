@@ -13964,7 +13964,15 @@ end
 function FLOAT.load()
     if FLOAT.loaded then return end
     -- Any missing/bad model file drops back to normal reflections instead of crashing
+    local t0 = Timer.getTime(FLOAT.timer)
     local ok, err = pcall(FLOAT.load_assets)
+    -- how long the models took to load (ux0:/data/RetroFlowFloat/float_load.txt)
+    pcall(function()
+        local f = System.openFile("ux0:/data/RetroFlowFloat/float_load.txt", FCREATE)
+        local line = string.format("load_assets %d ms ok=%s\n", Timer.getTime(FLOAT.timer) - t0, tostring(ok))
+        System.writeFile(f, line, #line)
+        System.closeFile(f)
+    end)
     if not ok then
         FLOAT.loaded = true
         FLOAT.broken = tostring(err)
@@ -13999,12 +14007,20 @@ function FLOAT.load_assets()
             local vname = name:gsub("^back", "")   -- backrefl uses the refl texture
             vname = vname:match("^(%a+)_") or vname   -- gloss_arrow / backgloss_marks use the gloss texture
             if FLOAT.VARIANT_TEX[vname] then
-                local set = {}
+                local set, imgs = {}, {}
                 for i = 0, FLOAT.GLOSS_STEPS - 1 do
-                    set[i] = Render.loadObject("app0:/DATA/float_" .. kind .. "_" .. name .. i .. ".obj", FLOAT.VARIANT_TEX[vname])
+                    local base = "app0:/DATA/float_" .. kind .. "_" .. name .. i
+                    local tex = FLOAT.VARIANT_TEX[vname]
+                    if System.doesFileExist(base .. ".png") then
+                        -- baked step: a quad with the highlight pre-multiplied into its own texture
+                        tex = Graphics.loadImage(base .. ".png")
+                        Graphics.setImageFilters(tex, FILTER_LINEAR, FILTER_LINEAR)
+                        imgs[i] = tex
+                    end
+                    set[i] = Render.loadObject(base .. ".obj", tex)
                 end
                 if name == "gloss" then m.gloss = set end
-                table.insert(m.layers, { name = name, set = set, back = vname ~= name })
+                table.insert(m.layers, { name = name, set = set, imgs = imgs, back = vname ~= name })
             elseif name == "shine" then
                 table.insert(m.layers, { name = name, shine = true, obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_shine.obj", FLOAT.shine_img) })
             elseif name == "grime" or name == "backgrime" then

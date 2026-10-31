@@ -31,7 +31,11 @@ Render = {
     drawModel = function(m, x, y, z, rx, ry, rz) PY_DRAW(m.path, tostring(m.tex), x, y, z, rx, ry, rz) end,
     setCamera = function() end,
 }
-System = { doesFileExist = function(p) return false end }
+System = { doesFileExist = function(p)
+    local rel = p:match("^app0:/DATA/(.*)$")
+    if rel and DATA_DIR then local f = io.open(DATA_DIR .. "/" .. rel, "rb"); if f then f:close(); return true end end
+    return false
+end }
 Controls = {}
 showView, smoothScrolling, showCat, quick_scrolling_factor = 0, 1, 1, 0
 hideBoxes, setReflections, showMenu = 0, 2, 0
@@ -46,6 +50,7 @@ def main():
     L = lupa.LuaRuntime(unpack_returned_tuples=True)
     draws = []
     L.globals().PY_DRAW = lambda path, tex, x, y, z, rx, ry, rz: draws.append([os.path.basename(path), tex, x, y, z, rx, ry, rz])
+    L.globals().DATA_DIR = os.path.abspath(next(iter(sets.values())))
     L.execute(MOCKS)
     src = extract_float(INDEX).replace("local function DrawCover(", "function DrawCover(")
     L.execute(src)
@@ -70,6 +75,8 @@ def main():
                 e["set"] = [os.path.basename(Lr.set[g].path) for g in range(int(F.GLOSS_STEPS))]
                 e["tex"] = os.path.basename(Lr.set[0].tex)
                 e["back"] = bool(Lr.back)
+                if Lr.imgs and Lr.imgs[0]:
+                    e["texset"] = [os.path.basename(Lr.imgs[g]) for g in range(int(F.GLOSS_STEPS))]
             else:
                 e["obj"] = os.path.basename(Lr.obj.path)
                 e["tex"] = os.path.basename(Lr.obj.tex)   # "noimg" for the label = cover art
