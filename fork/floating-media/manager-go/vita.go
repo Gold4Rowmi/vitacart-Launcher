@@ -109,8 +109,25 @@ func getFTP(cfg Config) (*ftp.ServerConn, error) {
 		time.Sleep(60*time.Millisecond - d)
 	}
 	lastOp = time.Now()
+	// let the session go after a few idle seconds: vitacompanion serves one client at a time,
+	// so a session held open blocks every other FTP tool (and the deploy script) on the Vita
+	if idleTimer != nil {
+		idleTimer.Stop()
+	}
+	idleTimer = time.AfterFunc(ftpIdle, func() {
+		vitaMutex.Lock()
+		defer vitaMutex.Unlock()
+		if ftpConn != nil && time.Since(lastOp) >= ftpIdle {
+			ftpConn.Quit()
+			ftpConn = nil
+		}
+	})
 	return ftpConn, nil
 }
+
+const ftpIdle = 5 * time.Second
+
+var idleTimer *time.Timer
 
 func dropFTP() {
 	if ftpConn != nil {

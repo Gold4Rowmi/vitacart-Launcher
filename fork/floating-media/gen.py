@@ -640,7 +640,6 @@ def vita_card():
     m_.write("float_vita_bands")
     variant_set("float_vita_gloss_arrow", lambda g, s: fan(g, arrow, zf + 0.002, planar(bb, s, 0.5, 0, 1)))
     shine_quad("vita", sbb[2] - sbb[0], sbb[1] + 0.01, sbb[3] - 0.10, zwell + 0.008)   # drifts 0.10 (index.lua FLOAT.SHINE)
-    shadow_set("vita", outline, T)
 
     # ---------------------------------------------------------------- texture (1024 atlas)
     TEX = 1024
@@ -713,7 +712,6 @@ def ps1_disc():
     m = Mesh(); ring(m, r_hole, R, T / 2, planar(bb, 0, 0.5, 0, 0.5), seg); m.write("float_psx_front")
     m = Mesh(); ring(m, r_li, r_lo, T / 2 + 0.003, planar(bb), seg); m.write("float_psx_label")
     shine_quad("psx", 1.30, -0.66, 0.66, T / 2 + 0.007)   # drifts 0.14
-    shadow_set("psx", circle(R, 64), T)
 
     img = Image.new("RGBA", (TEX, TEX), (0, 0, 0, 255))
     d = ImageDraw.Draw(img)
@@ -1066,7 +1064,6 @@ def psp_umd():
         slot_region(g, slot_h, x_end, R_open, zb - 0.002, uv)
     variant_set("float_psp_backrefl", back_overlay)
     shine_quad("psp", 1.24, -0.62, 0.62, disc_zf + 0.010)   # drifts 0.14
-    shadow_set("psp", outline, T)
 
     # ---------------------------------------------------------------- textures
     global TEX

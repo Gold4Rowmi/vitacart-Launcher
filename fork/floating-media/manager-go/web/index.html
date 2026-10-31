@@ -52,6 +52,7 @@ h2 span { font-weight:400; }
 .row:first-child { border-top:0; }
 .row.drag { background:color-mix(in oklch, var(--accent) 10%, var(--surface)); box-shadow:inset 0 0 0 2px var(--accent); }
 .cover { width:56px; height:56px; object-fit:cover; border-radius:4px; background:var(--surface-2); }
+.cover.disc { border-radius:50%; }
 .who { min-width:0; }
 .title { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .meta { color:var(--text-2); font-size:13px; }
@@ -165,10 +166,10 @@ function row(g) {
   const has = g.discart || g.printed;
   const state = g.discart ? ['on', 'real disc art'] : g.printed ? ['on', 'printed cover'] : ['', 'stock cover'];
   el.innerHTML = `
-    ${g.cover ? `<img class="cover" src="${g.cover}" alt="">` : '<div class="cover"></div>'}
+    ${has ? `<img class="cover ${g.kind !== 'card' ? 'disc' : ''}" src="/label/${g.id}?t=${Date.now()}" alt="">` : g.cover ? `<img class="cover" src="${g.cover}" alt="">` : '<div class="cover"></div>'}
     <div class="who"><div class="title" title="${g.title}">${g.title}</div><div class="meta"><code>${g.id}</code> · show as
       <select class="kind" aria-label="Show as"><option value="">${KIND[systemKind(g.type)]} (default)</option><option value="vita">Vita card</option><option value="psp">UMD</option><option value="psx">PS1 disc</option></select>${g.hidden ? ' · hidden in Float' : ''}</div></div>
-    <div class="state">${has ? `<img class="lab ${g.kind === 'card' ? 'card' : ''}" src="/label/${g.id}?t=${Date.now()}" alt="">` : ''}<span class="pill ${state[0]}">${state[1]}</span></div>
+    <div class="state"><span class="pill ${state[0]}">${state[1]}</span></div>
     <div class="acts"><label class="btn">${g.kind === 'card' ? 'Set cover' : 'Set disc art'} <input type="file" accept="image/*" hidden></label>${has ? '<button class="ghost danger">Remove</button>' : ''}</div>`;
   const sel = el.querySelector('select.kind'); sel.value = g.override || '';
   sel.onchange = async () => { try { await api('/api/media_type', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: g.id, kind: sel.value }) }); toast(`${g.title}: shown as ${sel.value ? KIND[kindName(sel.value)] : 'default'}. Relaunch Float to apply.`, false, 4000); load(); } catch (e) { toast(e.message, true, 5000); } };

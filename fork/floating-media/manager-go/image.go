@@ -166,7 +166,16 @@ func discLabel(src *image.NRGBA, c circle, size int) *image.NRGBA {
 func makeLabel(img image.Image, kind string) (*image.NRGBA, error) {
 	src := toRGBA(img)
 	if kind == "card" {
-		return src, nil // the cover itself; Float crops it under the blue band
+		// the cover itself (Float crops it under the blue band), capped at 512 px wide:
+		// a 3 MB scan costs the Vita seconds to decode and a lot of video memory
+		b := src.Bounds()
+		if b.Dx() > 512 {
+			h := int(math.Round(float64(b.Dy()) * 512 / float64(b.Dx())))
+			out := image.NewNRGBA(image.Rect(0, 0, 512, h))
+			draw.CatmullRom.Scale(out, out.Bounds(), src, b, draw.Over, nil)
+			return out, nil
+		}
+		return src, nil
 	}
 	c, ok := discFromAlpha(src)
 	if !ok {

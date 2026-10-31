@@ -13922,7 +13922,6 @@ FLOAT = {
     GRIME = false,         -- wear overlay (dust, fingerprints, scuffs); off, judged too dirty
     SHINE = { vita = 0.10, psp = 0.14, psx = 0.14 },   -- how far the soft label sheen drifts (model units) at full yaw
     SHINE_SPAN = 40,       -- degrees of yaw for the full slide
-    SHADOW_STEPS = 6,     -- footprint shadow: silhouette depth steps from upright (thin strip) to flat
     REFLECT = false,       -- floor reflection under the selected item (off: judged odd)
     -- UMD: the disc is loose on its hub. It slides to the low side of its play as the shell tilts
     -- and lags a little when the shell rolls; a damped spring, selected item only.
@@ -14062,13 +14061,7 @@ function FLOAT.load_assets()
         end
         -- floor reflection: mirrored copies of the base layers (glass layers use the glass image)
         -- footprint shadow set (falls back to the generic blob if missing)
-        m.shadow_img = Graphics.loadImage("app0:/DATA/float_" .. kind .. "_shadow.png")
-        Graphics.setImageFilters(m.shadow_img, FILTER_LINEAR, FILTER_LINEAR)
-        m.shadow_p, m.shadow_n = {}, {}
-        for i = 0, FLOAT.SHADOW_STEPS - 1 do
-            m.shadow_p[i] = Render.loadObject("app0:/DATA/float_" .. kind .. "_shadow" .. i .. ".obj", m.shadow_img)
-            m.shadow_n[i] = Render.loadObject("app0:/DATA/float_" .. kind .. "_shadown" .. i .. ".obj", m.shadow_img)
-        end
+        -- (the pitch-following footprint shadow sets were dropped for the simple blob: 12 files per kind)
         m.reflect = {}
         for _, name in ipairs(FLOAT.REFLECT_LAYERS[kind] or {}) do
             local img = (name == "glass") and FLOAT.glass_img or (name == "label" and imgCoverTmp or m.body_img)
