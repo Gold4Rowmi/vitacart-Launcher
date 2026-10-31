@@ -42,6 +42,18 @@ It opens `http://localhost:8765` in your browser and writes only `config.json` a
 - Art Manager: Go 1.22+, `cd fork/floating-media/manager-go && go build` (cross-compile with `GOOS`/`GOARCH`).
 - Deploying to a Vita: `fork/floating-media/deploy.sh` needs `curl` and vitacompanion on the Vita.
 
+## Known issues
+- **vitacompanion version.** The newest vitacompanion release did not work for us with the Art Manager and deploy script;
+  an older release did. If the manager shows the Vita as connected but transfers or "Relaunch Float" do nothing, try an
+  earlier release from the vitacompanion GitHub page.
+- vitacompanion serves **one FTP client at a time**: close other FTP tools (VitaShell's FTP, FileZilla) while the Art
+  Manager runs, or it waits forever.
+- `550 Could not allocate memory` from the Vita means a game or Adrenaline is running in the foreground; close it and retry.
+- An interrupted transfer can leave a 0-byte file on the card. A 0-byte model file crashes Float (error C2-12828-1):
+  re-run `deploy.sh`, or delete `ux0:/data/RetroFlowFloat/DATA/version.txt` so Float re-copies its models on next launch.
+- An "An error occurred ... index.lua" screen is a Lua error, not a freeze; close Float and launch it again (pressing X
+  re-runs the script and reports "Network is already inited").
+
 ## Source layout
 - `src/index.lua`: the launcher; the Float module starts at `-- FLOATING PHYSICAL MEDIA (fork)`.
 - `fork/floating-media/gen.py`: builds every model and texture into `DATA/` from traced drawings of the real items.
