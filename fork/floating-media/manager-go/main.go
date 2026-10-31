@@ -12,10 +12,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
-	"image/png"
 	_ "image/gif"
 	_ "image/jpeg"
+	"image/png"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -190,6 +191,31 @@ func main() {
 		http.NotFound(w, r)
 	})
 
+	// /api/detect: where the disc is in an uploaded image (for the crop editor)
+	http.HandleFunc("/api/detect", func(w http.ResponseWriter, r *http.Request) {
+		file, _, err := r.FormFile("image")
+		if err != nil {
+			fail(w, 400, fmt.Errorf("no image"))
+			return
+		}
+		defer file.Close()
+		img, _, err := image.Decode(file)
+		if err != nil {
+			fail(w, 400, fmt.Errorf("cannot read that image: %v", err))
+			return
+		}
+		src := toRGBA(img)
+		c, ok := discFromAlpha(src)
+		if !ok {
+			c, ok = findDisc(src)
+		}
+		b := src.Bounds()
+		if !ok {
+			c = circle{float64(b.Dx()) / 2, float64(b.Dy()) / 2, math.Min(float64(b.Dx()), float64(b.Dy())) * 0.45}
+		}
+		writeJSON(w, 200, map[string]any{"ok": true, "found": ok, "cx": c.cx, "cy": c.cy, "r": c.r, "width": b.Dx(), "height": b.Dy()})
+	})
+
 	http.HandleFunc("/api/label/", func(w http.ResponseWriter, r *http.Request) {
 		id := safeID.ReplaceAllString(strings.TrimPrefix(r.URL.Path, "/api/label/"), "")
 		t, _ := strconv.Atoi(r.URL.Query().Get("type"))
@@ -217,10 +243,18 @@ func main() {
 				fail(w, 400, fmt.Errorf("cannot read that image: %v", err))
 				return
 			}
-			label, err := makeLabel(img, s.Kind)
-			if err != nil {
-				fail(w, 400, err)
-				return
+			var label *image.NRGBA
+			cx, _ := strconv.ParseFloat(r.FormValue("cx"), 64)
+			cy, _ := strconv.ParseFloat(r.FormValue("cy"), 64)
+			cr, _ := strconv.ParseFloat(r.FormValue("r"), 64)
+			if s.Kind != "card" && cr > 4 {
+				label = discLabel(toRGBA(img), circle{cx, cy, cr}, 512) // circle confirmed in the editor
+			} else {
+				label, err = makeLabel(img, s.Kind)
+				if err != nil {
+					fail(w, 400, err)
+					return
+				}
 			}
 			if r.FormValue("print") == "1" {
 				label = printEffect(label, cfg.PrintCell)
