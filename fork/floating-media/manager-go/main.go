@@ -126,13 +126,15 @@ func main() {
 	http.HandleFunc("/api/games", func(w http.ResponseWriter, r *http.Request) {
 		vitaMutex.Lock()
 		defer vitaMutex.Unlock()
-		c, err := dial(loadConfig())
+		c, err := getFTP(loadConfig())
 		if err != nil {
 			fail(w, 502, err)
 			return
 		}
-		defer c.Quit()
 		games := library(c)
+		if len(games) == 0 {
+			dropFTP()
+		}
 		state := map[int]map[string]bool{}
 		for t, s := range systems {
 			state[t] = ftpList(c, printRoot+"/"+s.Folder)
@@ -175,14 +177,19 @@ func main() {
 
 	http.HandleFunc("/label/", func(w http.ResponseWriter, r *http.Request) {
 		id := safeID.ReplaceAllString(strings.TrimPrefix(r.URL.Path, "/label/"), "")
+		cached := filepath.Join(cacheDir, "label_"+id+".png")
+		if data, err := os.ReadFile(cached); err == nil {
+			w.Header().Set("Content-Type", "image/png")
+			w.Write(data)
+			return
+		}
 		vitaMutex.Lock()
 		defer vitaMutex.Unlock()
-		c, err := dial(loadConfig())
+		c, err := getFTP(loadConfig())
 		if err != nil {
 			fail(w, 502, err)
 			return
 		}
-		defer c.Quit()
 		for _, s := range systems {
 			names := []string{}
 			if s.Suffix != "" {
@@ -191,6 +198,7 @@ func main() {
 			names = append(names, id+".png")
 			for _, n := range names {
 				if data, err := ftpGet(c, printRoot+"/"+s.Folder+"/"+n); err == nil {
+					os.WriteFile(cached, data, 0o644)
 					w.Header().Set("Content-Type", "image/png")
 					w.Write(data)
 					return
@@ -279,12 +287,12 @@ func main() {
 		}
 		vitaMutex.Lock()
 		defer vitaMutex.Unlock()
-		c, err := dial(cfg)
+		c, err := getFTP(cfg)
 		if err != nil {
 			fail(w, 502, err)
 			return
 		}
-		defer c.Quit()
+		os.Remove(filepath.Join(cacheDir, "label_"+id+".png"))
 		if r.Method == http.MethodDelete {
 			if err := c.Delete(path); err != nil {
 				fail(w, 400, err)
@@ -294,6 +302,7 @@ func main() {
 			return
 		}
 		if err := ftpPut(c, path, data); err != nil {
+			dropFTP()
 			fail(w, 502, fmt.Errorf("upload failed: %v (if the Vita says it cannot allocate memory, close the game that is running)", err))
 			return
 		}
@@ -311,12 +320,11 @@ func main() {
 		}
 		vitaMutex.Lock()
 		defer vitaMutex.Unlock()
-		c, err := dial(loadConfig())
+		c, err := getFTP(loadConfig())
 		if err != nil {
 			fail(w, 502, err)
 			return
 		}
-		defer c.Quit()
 		m := readMediaTypes(c)
 		if in.Kind == "" {
 			delete(m, in.ID)
@@ -334,12 +342,11 @@ func main() {
 		cfg := loadConfig()
 		vitaMutex.Lock()
 		defer vitaMutex.Unlock()
-		c, err := dial(cfg)
+		c, err := getFTP(cfg)
 		if err != nil {
 			fail(w, 502, err)
 			return
 		}
-		defer c.Quit()
 		n := 0
 		for _, s := range systems {
 			src := "ux0:/data/RetroFlow/COVERS/" + s.Folder
@@ -393,12 +400,11 @@ func main() {
 		}
 		vitaMutex.Lock()
 		defer vitaMutex.Unlock()
-		c, err := dial(loadConfig())
+		c, err := getFTP(loadConfig())
 		if err != nil {
 			fail(w, 502, err)
 			return
 		}
-		defer c.Quit()
 		if err := ftpPut(c, wallpaperRoot+"/"+name+".png", encodePNG(out)); err != nil {
 			fail(w, 502, err)
 			return

@@ -79,6 +79,46 @@ type Game struct {
 	Cover    string `json:"cover"`
 }
 
+// One FTP session, reused and paced: vitacompanion's server is small and dislikes connection churn.
+var (
+	ftpConn *ftp.ServerConn
+	ftpCfg  Config
+	lastOp  time.Time
+)
+
+func getFTP(cfg Config) (*ftp.ServerConn, error) {
+	if ftpConn != nil && (cfg.IP != ftpCfg.IP || cfg.FTPPort != ftpCfg.FTPPort) {
+		ftpConn.Quit()
+		ftpConn = nil
+	}
+	if ftpConn != nil {
+		if err := ftpConn.NoOp(); err != nil {
+			ftpConn.Quit()
+			ftpConn = nil
+		}
+	}
+	if ftpConn == nil {
+		c, err := dial(cfg)
+		if err != nil {
+			return nil, err
+		}
+		ftpConn, ftpCfg = c, cfg
+	}
+	// pace transfers a little so the Vita never sees back-to-back commands
+	if d := time.Since(lastOp); d < 60*time.Millisecond {
+		time.Sleep(60*time.Millisecond - d)
+	}
+	lastOp = time.Now()
+	return ftpConn, nil
+}
+
+func dropFTP() {
+	if ftpConn != nil {
+		ftpConn.Quit()
+		ftpConn = nil
+	}
+}
+
 func dial(cfg Config) (*ftp.ServerConn, error) {
 	c, err := ftp.Dial(fmt.Sprintf("%s:%d", cfg.IP, cfg.FTPPort), ftp.DialWithTimeout(15*time.Second))
 	if err != nil {
@@ -114,6 +154,9 @@ func ftpGet(c *ftp.ServerConn, path string) ([]byte, error) {
 
 // ftpPut creates the folders on the way (vitacompanion needs them made explicitly).
 func ftpPut(c *ftp.ServerConn, path string, data []byte) error {
+	if err := c.Stor(path, bytes.NewReader(data)); err == nil {
+		return nil
+	}
 	parts := strings.Split(path, "/")
 	for i := 2; i < len(parts); i++ {
 		c.MakeDir(strings.Join(parts[:i], "/"))
