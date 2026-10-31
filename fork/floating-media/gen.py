@@ -164,25 +164,23 @@ def split_at_y(poly, y, side):
 
 
 def band_sides(prefix, poly, z0, z1, u0=0.0, uw=1.0, r0=0.55, r1=0.95, z0f=None):
-    """band() split into four meshes by the side each edge faces (R/T/L/B), so the Lua can
-    draw the near side last (covering the inside) and the far sides in place.
+    """The outer side band as one mesh (file <prefix>.obj).
     z0f(mx, my) -> back z for that edge (a notch where a pocket cuts through the rim)."""
     per = [0.0]
     n = len(poly)
     for i in range(n):
         per.append(per[-1] + math.dist(poly[i], poly[(i + 1) % n]))
     tot = per[-1] or 1
-    meshes = {k: Mesh() for k in "RTLB"}
+    # one opaque mesh: the engine depth-tests, so the near side needs no special draw order
+    m = Mesh()
     for i in range(n):
         p0, p1 = poly[i], poly[(i + 1) % n]
         mx, my = (p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2
-        side = ("R" if mx > 0 else "L") if abs(mx) > abs(my) else ("T" if my > 0 else "B")
         s0, s1 = u0 + uw * per[i] / tot, u0 + uw * per[i + 1] / tot
         zz = z0f(mx, my) if z0f else z0
-        meshes[side].quad(((p0[0], p0[1], zz), (s0, r1)), ((p1[0], p1[1], zz), (s1, r1)),
-                          ((p1[0], p1[1], z1), (s1, r0)), ((p0[0], p0[1], z1), (s0, r0)))
-    for k, m in meshes.items():
-        m.write(f"{prefix}{k}")
+        m.quad(((p0[0], p0[1], zz), (s0, r1)), ((p1[0], p1[1], zz), (s1, r1)),
+               ((p1[0], p1[1], z1), (s1, r0)), ((p0[0], p0[1], z1), (s0, r0)))
+    m.write(prefix)
 
 
 def gloss_set(name, make_ring):
@@ -1364,8 +1362,8 @@ def shine_quad(kind, w, y0, y1, z):
 
 
 
-REFLECT = { "vita": ["front", "well", "label", "bands", "bandR", "bandT", "bandL", "bandB"],
-            "psp": ["shellfront", "shellfrontbevel", "label", "hub", "glass", "bandR", "bandT", "bandL", "bandB"],
+REFLECT = { "vita": ["front", "well", "label", "bands", "band"],
+            "psp": ["shellfront", "shellfrontbevel", "label", "hub", "glass", "band"],
             "psx": ["front", "label", "band"] }
 
 

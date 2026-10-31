@@ -13930,19 +13930,19 @@ FLOAT = {
     DISC_SPRING = 90, DISC_DAMP = 11, DISC_FRICTION = 4.0,
     DISC_LAYERS = { label = true, hub = true, discback = true, sheen = true, glass = false },
     disc = { x = 0, y = 0, vx = 0, vy = 0, spin = 0, last_rz = nil },
-    REFLECT_LAYERS = { vita = { "front", "well", "label", "bands", "bandR", "bandT", "bandL", "bandB" },
-                       psp = { "shellfront", "shellfrontbevel", "label", "hub", "glass", "bandR", "bandT", "bandL", "bandB" },
+    REFLECT_LAYERS = { vita = { "front", "well", "label", "bands", "band" },
+                       psp = { "shellfront", "shellfrontbevel", "label", "hub", "glass", "band" },
                        psx = { "front", "label", "band" } },   -- layer -> facing threshold (see draw_layers)
     HALF = { vita = 0.949, psp = 0.956, psx = 0.925 },
     YOFF = { vita = 0, psp = 0.018, psx = 0 },
     LAYERS = {
         -- pocket walls are listed before the floors: drawn after them when the back faces the camera
         vita = { "backgrime", "backgloss_marks", "wallbackR", "wallbackT", "wallbackL", "wallbackB", "backgloss_pins", "backcuts", "back",
-                 "bandR", "bandT", "bandL", "bandB", "front", "well", "label", "bands", "gloss_arrow", "shine", "grime" },
+                 "band", "front", "well", "label", "bands", "gloss_arrow", "shine", "grime" },
         psx = { "sheen", "back", "band", "front", "label", "shine" },
         -- "back..." overlays belong to the back face: drawn only when it faces the camera
         psp = { "backgrime", "backrefl", "slotrim", "backetch", "backglass", "wallbackR", "wallbackT", "wallbackL", "wallbackB",
-                "backcuts", "shellback", "shellbackbevel", "sheen", "discback", "bandR", "bandT", "bandL", "bandB",
+                "backcuts", "shellback", "shellbackbevel", "sheen", "discback", "band",
                 "label", "hub", "glass", "wallR", "wallT", "wallL", "wallB",
                 "shellfront", "shellfrontbevel", "shade", "refl", "shine", "grime" },
     },
@@ -14129,10 +14129,6 @@ function FLOAT.build_steps()
                 end
             elseif name == "glass" or name == "backglass" then
                 step(function() table.insert(m.layers, { name = name, obj = Render.loadObject(FLOAT.DATA .. "float_" .. kind .. "_" .. name .. ".obj", FLOAT.glass_img) }) end)
-            elseif name:match("^band%u$") then
-                -- side wall in four pieces: the piece nearest the camera is drawn last
-                step(function() table.insert(m.layers, { name = name, band = true, side = name:sub(-1),
-                    obj = Render.loadObject(FLOAT.DATA .. "float_" .. kind .. "_" .. name .. ".obj", m.body_img) }) end)
             elseif name:match("^wall") then
                 -- inner wall of the window, one arc per side; only the far side is ever drawn
                 step(function() table.insert(m.layers, { name = name, side = name:sub(-1), back = name:find("back") ~= nil,
@@ -14420,11 +14416,6 @@ function FLOAT.draw_layers(kind, icon, disc_label, px, cy, pz, rx, ry, rz, with_
             end
         elseif L.grime then
             if FLOAT.GRIME and (L.back == (facing < 0)) then Render.drawModel(L.obj, px, cy, pz, rx, ry, rz) end
-        elseif L.band then
-            local sy, sx = math.sin(math.rad(ry)), math.sin(math.rad(rx))
-            local near = (L.side == "R" and sy < -0.03) or (L.side == "L" and sy > 0.03)
-                      or (L.side == "B" and sx < -0.03) or (L.side == "T" and sx > 0.03)
-            if near then table.insert(last, L.obj) else Render.drawModel(L.obj, px, cy, pz, rx, ry, rz) end
         elseif L.set then
             -- view-dependent overlays: pick the mesh whose uv window matches the yaw
             -- (measured from whichever face the overlay belongs to)
