@@ -13962,11 +13962,13 @@ end
 
 FLOAT.LOG_PATH = "ux0:/data/RetroFlowFloat/float_load.txt"
 FLOAT.log_lines = {}
--- Progress / timing log for the asset load (the file is rewritten: FCREATE does not truncate)
+-- Load timeline, kept in memory; written once when loading ends (plain create + write: the
+-- delete/recreate-per-line logger used while measuring hung the app)
 function FLOAT.log(line)
     table.insert(FLOAT.log_lines, line)
+end
+function FLOAT.log_flush()
     pcall(function()
-        if System.doesFileExist(FLOAT.LOG_PATH) then System.deleteFile(FLOAT.LOG_PATH) end
         local f = System.openFile(FLOAT.LOG_PATH, FCREATE)
         local text = table.concat(FLOAT.log_lines, "\n") .. "\n"
         System.writeFile(f, text, #text)
@@ -13974,102 +13976,140 @@ function FLOAT.log(line)
     end)
 end
 
+-- The models load a slice per frame: a queue of small steps run from the main loop with a
+-- time budget, so the launcher keeps drawing and answering input instead of freezing, and
+-- each media kind appears as soon as its own files are in. (No coroutines: lpp-vita hangs
+-- when its functions are called from one.) Any missing/bad file drops back to normal
+-- reflections instead of crashing.
+FLOAT.LOAD_BUDGET = 14   -- ms of loading per frame
 function FLOAT.load()
     if FLOAT.loaded then return end
-    -- Any missing/bad model file drops back to normal reflections instead of crashing
+    -- never load while the launcher's cover thread is decoding (Graphics.loadImageAsync):
+    -- lpp's image loader is not thread-safe
+    if System.getAsyncState() == 0 then return end
+    if not FLOAT.steps then
+        FLOAT.load_t0 = Timer.getTime(FLOAT.timer)
+        FLOAT.log("loading...")
+        local ok, steps = pcall(FLOAT.build_steps)
+        if not ok then FLOAT.load_fail(steps) return end
+        FLOAT.steps, FLOAT.step_i = steps, 1
+    end
     local t0 = Timer.getTime(FLOAT.timer)
-    FLOAT.log("loading...")
-    local ok, err = pcall(FLOAT.load_assets)
-    FLOAT.log(string.format("load_assets %d ms ok=%s %s", Timer.getTime(FLOAT.timer) - t0, tostring(ok), ok and "" or tostring(err)))
-    if not ok then
+    while FLOAT.step_i <= #FLOAT.steps do
+        local ok, err = pcall(FLOAT.steps[FLOAT.step_i])
+        if not ok then FLOAT.load_fail(err) return end
+        FLOAT.step_i = FLOAT.step_i + 1
+        if Timer.getTime(FLOAT.timer) - t0 >= FLOAT.LOAD_BUDGET then break end
+    end
+    if FLOAT.step_i > #FLOAT.steps then
         FLOAT.loaded = true
-        FLOAT.broken = tostring(err)
-        setReflections = 1
+        FLOAT.steps = nil
+        FLOAT.log(string.format("load_assets %d ms ok=true", Timer.getTime(FLOAT.timer) - FLOAT.load_t0))
+        FLOAT.log_flush()
     end
 end
 
-function FLOAT.load_assets()
-    FLOAT.shadow_img = Graphics.loadImage("app0:/DATA/float_shadow.png")
-    FLOAT.shadow = Render.loadObject("app0:/DATA/float_shadow.obj", FLOAT.shadow_img)
-    FLOAT.gloss_img = Graphics.loadImage("app0:/DATA/float_gloss.png")
-    Graphics.setImageFilters(FLOAT.gloss_img, FILTER_LINEAR, FILTER_LINEAR)
-    FLOAT.sheen_img = Graphics.loadImage("app0:/DATA/float_sheen.png")
-    Graphics.setImageFilters(FLOAT.sheen_img, FILTER_LINEAR, FILTER_LINEAR)
-    FLOAT.env_img = Graphics.loadImage("app0:/DATA/float_env.png")
-    Graphics.setImageFilters(FLOAT.env_img, FILTER_LINEAR, FILTER_LINEAR)
-    FLOAT.shade_img = Graphics.loadImage("app0:/DATA/float_shade.png")
-    Graphics.setImageFilters(FLOAT.shade_img, FILTER_LINEAR, FILTER_LINEAR)
-    FLOAT.VARIANT_TEX = { gloss = FLOAT.gloss_img, refl = FLOAT.env_img, shade = FLOAT.shade_img }
-    FLOAT.glass_img = Graphics.loadImage("app0:/DATA/float_glass.png")
-    Graphics.setImageFilters(FLOAT.glass_img, FILTER_LINEAR, FILTER_LINEAR)
-    FLOAT.grime_img = Graphics.loadImage("app0:/DATA/float_grime.png")
-    Graphics.setImageFilters(FLOAT.grime_img, FILTER_LINEAR, FILTER_LINEAR)
-    FLOAT.shine_img = Graphics.loadImage("app0:/DATA/float_shine.png")
-    Graphics.setImageFilters(FLOAT.shine_img, FILTER_LINEAR, FILTER_LINEAR)
+function FLOAT.load_fail(err)
+    FLOAT.log(string.format("load_assets %d ms ok=false %s", Timer.getTime(FLOAT.timer) - (FLOAT.load_t0 or 0), tostring(err)))
+    FLOAT.log_flush()
+    FLOAT.loaded = true
+    FLOAT.steps = nil
+    FLOAT.broken = tostring(err)
+    setReflections = 1
+end
+
+local function float_img(path)
+    local img = Graphics.loadImage(path)
+    Graphics.setImageFilters(img, FILTER_LINEAR, FILTER_LINEAR)
+    return img
+end
+
+-- Build the load queue: one step per file, in the same order the old one-shot loader used
+function FLOAT.build_steps()
+    local S = {}
+    local function step(f) S[#S + 1] = f end
+    step(function() FLOAT.shadow_img = Graphics.loadImage("app0:/DATA/float_shadow.png") end)
+    step(function() FLOAT.shadow = Render.loadObject("app0:/DATA/float_shadow.obj", FLOAT.shadow_img) end)
+    step(function() FLOAT.gloss_img = float_img("app0:/DATA/float_gloss.png") end)
+    step(function() FLOAT.sheen_img = float_img("app0:/DATA/float_sheen.png") end)
+    step(function() FLOAT.env_img = float_img("app0:/DATA/float_env.png") end)
+    step(function()
+        FLOAT.shade_img = float_img("app0:/DATA/float_shade.png")
+        FLOAT.VARIANT_TEX = { gloss = FLOAT.gloss_img, refl = FLOAT.env_img, shade = FLOAT.shade_img }
+    end)
+    step(function() FLOAT.glass_img = float_img("app0:/DATA/float_glass.png") end)
+    step(function() FLOAT.grime_img = float_img("app0:/DATA/float_grime.png") end)
+    step(function() FLOAT.shine_img = float_img("app0:/DATA/float_shine.png") end)
 
     for kind, names in pairs(FLOAT.LAYERS) do
         local m = { layers = {}, gloss = {} }
-        m.body_img = Graphics.loadImage("app0:/DATA/float_" .. kind .. "_body.png")
-        Graphics.setImageFilters(m.body_img, FILTER_LINEAR, FILTER_LINEAR)
+        step(function()
+            FLOAT.log(kind .. " body @" .. Timer.getTime(FLOAT.timer))
+            m.body_img = float_img("app0:/DATA/float_" .. kind .. "_body.png")
+        end)
         for _, name in ipairs(names) do
-            FLOAT.log(kind .. " " .. name .. " @" .. Timer.getTime(FLOAT.timer))
             local vname = name:gsub("^back", "")   -- backrefl uses the refl texture
             vname = vname:match("^(%a+)_") or vname   -- gloss_arrow / backgloss_marks use the gloss texture
-            if FLOAT.VARIANT_TEX[vname] then
+            step(function() FLOAT.log(kind .. " " .. name .. " @" .. Timer.getTime(FLOAT.timer)) end)
+            if vname == "gloss" or vname == "refl" or vname == "shade" then   -- the VARIANT_TEX keys
                 local set, imgs = {}, {}
                 for i = 0, FLOAT.GLOSS_STEPS - 1 do
-                    local base = "app0:/DATA/float_" .. kind .. "_" .. name .. i
-                    local tex = FLOAT.VARIANT_TEX[vname]
-                    if System.doesFileExist(base .. ".png") then
-                        -- baked step: a quad with the highlight pre-multiplied into its own texture
-                        FLOAT.log("  png " .. i)
-                        tex = Graphics.loadImage(base .. ".png")
-                        Graphics.setImageFilters(tex, FILTER_LINEAR, FILTER_LINEAR)
-                        imgs[i] = tex
-                    end
-                    set[i] = Render.loadObject(base .. ".obj", tex)
+                    step(function()
+                        local base = "app0:/DATA/float_" .. kind .. "_" .. name .. i
+                        local tex = FLOAT.VARIANT_TEX[vname]
+                        if System.doesFileExist(base .. ".png") then
+                            -- baked step: a quad with the highlight pre-multiplied into its own texture
+                            tex = float_img(base .. ".png")
+                            imgs[i] = tex
+                        end
+                        set[i] = Render.loadObject(base .. ".obj", tex)
+                    end)
                 end
-                if name == "gloss" then m.gloss = set end
-                table.insert(m.layers, { name = name, set = set, imgs = imgs, back = vname ~= name })
+                step(function()
+                    if name == "gloss" then m.gloss = set end
+                    table.insert(m.layers, { name = name, set = set, imgs = imgs, back = vname ~= name })
+                end)
             elseif name == "shine" then
-                table.insert(m.layers, { name = name, shine = true, obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_shine.obj", FLOAT.shine_img) })
+                step(function() table.insert(m.layers, { name = name, shine = true, obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_shine.obj", FLOAT.shine_img) }) end)
             elseif name == "grime" or name == "backgrime" then
-                table.insert(m.layers, { name = name, grime = true, back = name == "backgrime",
-                    obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_" .. name .. ".obj", FLOAT.grime_img) })
+                step(function() table.insert(m.layers, { name = name, grime = true, back = name == "backgrime",
+                    obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_" .. name .. ".obj", FLOAT.grime_img) }) end)
             elseif name == "glass" or name == "backglass" then
-                table.insert(m.layers, { name = name, obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_" .. name .. ".obj", FLOAT.glass_img) })
+                step(function() table.insert(m.layers, { name = name, obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_" .. name .. ".obj", FLOAT.glass_img) }) end)
             elseif name:match("^band%u$") then
-                -- side wall in four pieces: the piece nearest the camera is drawn last so the
-                -- disc inside never shows through the edge (no depth test), far pieces in place
-                table.insert(m.layers, { name = name, band = true, side = name:sub(-1),
-                    obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_" .. name .. ".obj", m.body_img) })
+                -- side wall in four pieces: the piece nearest the camera is drawn last
+                step(function() table.insert(m.layers, { name = name, band = true, side = name:sub(-1),
+                    obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_" .. name .. ".obj", m.body_img) }) end)
             elseif name:match("^wall") then
                 -- inner wall of the window, one arc per side; only the far side is ever drawn
-                table.insert(m.layers, { name = name, side = name:sub(-1), back = name:find("back") ~= nil,
-                    obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_" .. name .. ".obj", m.body_img) })
+                step(function() table.insert(m.layers, { name = name, side = name:sub(-1), back = name:find("back") ~= nil,
+                    obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_" .. name .. ".obj", m.body_img) }) end)
             elseif name == "sheen" then
-                table.insert(m.layers, { name = "sheen", obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_sheen.obj", FLOAT.sheen_img) })
+                step(function() table.insert(m.layers, { name = "sheen", obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_sheen.obj", FLOAT.sheen_img) }) end)
             elseif name == "label" then
-                m.label = Render.loadObject("app0:/DATA/float_" .. kind .. "_label.obj", imgCoverTmp)
-                table.insert(m.layers, { name = "label", obj = m.label })
+                step(function()
+                    m.label = Render.loadObject("app0:/DATA/float_" .. kind .. "_label.obj", imgCoverTmp)
+                    table.insert(m.layers, { name = "label", obj = m.label })
+                end)
             else
-                table.insert(m.layers, { name = name, obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_" .. name .. ".obj", m.body_img) })
+                step(function() table.insert(m.layers, { name = name, obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_" .. name .. ".obj", m.body_img) }) end)
             end
         end
         if kind == "psp" then
-            m.labeldisc = Render.loadObject("app0:/DATA/float_psp_labeldisc.obj", imgCoverTmp)
+            step(function() m.labeldisc = Render.loadObject("app0:/DATA/float_psp_labeldisc.obj", imgCoverTmp) end)
         end
         -- floor reflection: mirrored copies of the base layers (glass layers use the glass image)
-        -- footprint shadow set (falls back to the generic blob if missing)
-        -- (the pitch-following footprint shadow sets were dropped for the simple blob: 12 files per kind)
         m.reflect = {}
         for _, name in ipairs(FLOAT.REFLECT_LAYERS[kind] or {}) do
-            local img = (name == "glass") and FLOAT.glass_img or (name == "label" and imgCoverTmp or m.body_img)
-            table.insert(m.reflect, { name = name, obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_r_" .. name .. ".obj", img) })
+            step(function()
+                local img = (name == "glass") and FLOAT.glass_img or (name == "label" and imgCoverTmp or m.body_img)
+                table.insert(m.reflect, { name = name, obj = Render.loadObject("app0:/DATA/float_" .. kind .. "_r_" .. name .. ".obj", img) })
+            end)
         end
-        FLOAT.media[kind] = m
+        -- the kind becomes drawable only once every one of its files is in
+        step(function() FLOAT.media[kind] = m end)
     end
-    FLOAT.loaded = true
+    return S
 end
 
 -- Cover image to load for a game: a real disc label if one exists (PSP only)
@@ -14179,8 +14219,11 @@ end
 
 -- Call once per frame before drawing covers
 function FLOAT.update()
-    FLOAT.load()
+    -- load the models from the second frame on: the first frame must reach the screen first
+    -- (the system kills an app that shows nothing for ~10 s after launch)
+    if (FLOAT.frames or 0) >= 1 then FLOAT.load() end
     local now = Timer.getTime(FLOAT.timer)
+    FLOAT.frames = (FLOAT.frames or 0) + 1
     local dt = FLOAT.clamp((now - FLOAT.last_ms) / 1000, 0, 0.1)
     FLOAT.last_ms = now
     FLOAT.dt = dt
@@ -14270,16 +14313,9 @@ function FLOAT.sheen_angle(rx, ry)
 end
 
 function FLOAT.draw_shadow(px, py, pz, ry, kind, rx)
-    local m = kind and FLOAT.media[kind]
-    if m and m.shadow_p then
-        -- the item's footprint under a top light: silhouette depth follows the pitch
-        local s = math.sin(math.rad(rx or 0))
-        local k = math.floor(math.abs(s) * (FLOAT.SHADOW_STEPS - 1) + 0.5)
-        local set = (s >= 0) and m.shadow_p or m.shadow_n
-        Render.drawModel(set[k], px, py + 0.003, pz, 0, ry, 0)
-    else
-        Render.drawModel(FLOAT.shadow, px, py + 0.003, pz, 0, ry, 0)
-    end
+    -- one soft blob under every item (nothing until the model is in: files load over frames)
+    if not FLOAT.shadow then return end
+    Render.drawModel(FLOAT.shadow, px, py + 0.003, pz, 0, ry, 0)
 end
 
 -- Mirror image of the item in the floor (y = py), fading out with distance from the floor line
@@ -14646,7 +14682,7 @@ function FLOAT.draw_cover_real(x, y, text, icon, sel, apptype, cur_p)
         fl_y, fl_z, fl_rx, fl_ry, fl_rz = FLOAT.offsets(abs_side_factor, cur_p)
         local cur_file = FLOAT.cur_def and cur_p and FLOAT.cur_def[cur_p]
         local kind = FLOAT.media_kind(apptype, cur_file and cur_file.name)
-        if kind then
+        if kind and FLOAT.media[kind] then   -- the plain box until this kind's files are all in
             FLOAT.draw_media(kind, icon, x + extrax, y + extray, -5 - extraz - zoom + fl_z,
                 fl_y, fl_rx, math.deg(rot) + fl_ry, fl_rz, abs_side_factor, cur_p)
             return

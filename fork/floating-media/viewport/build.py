@@ -31,7 +31,7 @@ Render = {
     drawModel = function(m, x, y, z, rx, ry, rz) PY_DRAW(m.path, tostring(m.tex), x, y, z, rx, ry, rz) end,
     setCamera = function() end,
 }
-System = { doesFileExist = function(p)
+System = { getAsyncState = function() return 1 end, doesFileExist = function(p)
     local rel = p:match("^app0:/DATA/(.*)$")
     if rel and DATA_DIR then local f = io.open(DATA_DIR .. "/" .. rel, "rb"); if f then f:close(); return true end end
     return false
@@ -55,7 +55,7 @@ def main():
     src = extract_float(INDEX).replace("local function DrawCover(", "function DrawCover(")
     L.execute(src)
     F = L.globals().FLOAT
-    F.load_assets()
+    F.load()   # step queue; the mock clock never advances so one call runs every step
 
     kinds = sorted(k for k in F.LAYERS.keys())
     scene = {

@@ -20,7 +20,7 @@ Render = {
     end,
     setCamera = function() end,
 }
-System = { doesFileExist = function(p)
+System = { getAsyncState = function() return 1 end, doesFileExist = function(p)
     if p:find("umd_real") then return true end
     local rel = p:match("^app0:/DATA/(.*)$")
     if rel and DATA_DIR then local f = io.open(DATA_DIR .. "/" .. rel, "rb"); if f then f:close(); return true end end
