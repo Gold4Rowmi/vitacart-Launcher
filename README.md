@@ -25,6 +25,9 @@ Off / On / Floating media.
 
 Licence: MIT, as RetroFlow. Credits: jimbob4000 (RetroFlow, lpp-vita build), VitaHEX (HexFlow), depmots (Socket, the inspiration).
 
+Built by vibe coding with [Claude](https://claude.ai) (Claude Code): the models, the loader, the Art Manager and the
+viewer were written with it, tested on a real Vita along the way.
+
 ---
 
 
