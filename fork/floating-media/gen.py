@@ -25,7 +25,7 @@ from PIL import Image, ImageDraw, ImageFilter
 
 OUT = sys.argv[1] if len(sys.argv) > 1 else "out/DATA"
 os.makedirs(OUT, exist_ok=True)
-GLOSS_STEPS = 24
+GLOSS_STEPS = 12
 TEX = 512
 
 
@@ -1408,7 +1408,7 @@ def reflection_fade():
 
 
 
-SHADOW_STEPS = 12
+SHADOW_STEPS = 6
 
 
 def shadow_set(kind, outline, T):

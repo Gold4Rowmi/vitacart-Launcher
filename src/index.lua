@@ -13917,12 +13917,12 @@ FLOAT = {
     DRAG_PITCH = 0.35,
     FLICK_MAX = 900,       -- deg/s carried into the spring on release
     GRAB_W = 170, GRAB_Y0 = 40, GRAB_Y1 = 440,  -- touch area of the selected item
-    GLOSS_STEPS = 24,   -- highlight positions per view-dependent overlay set
+    GLOSS_STEPS = 12,   -- highlight positions per view-dependent overlay set
     BACK_ONLY = { backcuts = 0.5, backetch = -0.05 },    -- pocket floors also show from the side
     GRIME = false,         -- wear overlay (dust, fingerprints, scuffs); off, judged too dirty
     SHINE = { vita = 0.10, psp = 0.14, psx = 0.14 },   -- how far the soft label sheen drifts (model units) at full yaw
     SHINE_SPAN = 40,       -- degrees of yaw for the full slide
-    SHADOW_STEPS = 12,     -- footprint shadow: silhouette depth steps from upright (thin strip) to flat
+    SHADOW_STEPS = 6,     -- footprint shadow: silhouette depth steps from upright (thin strip) to flat
     REFLECT = false,       -- floor reflection under the selected item (off: judged odd)
     -- UMD: the disc is loose on its hub. It slides to the low side of its play as the shell tilts
     -- and lags a little when the shell rolls; a damped spring, selected item only.
@@ -13961,18 +13961,27 @@ function FLOAT.clamp(v, lo, hi)
     return v
 end
 
+FLOAT.LOG_PATH = "ux0:/data/RetroFlowFloat/float_load.txt"
+FLOAT.log_lines = {}
+-- Progress / timing log for the asset load (the file is rewritten: FCREATE does not truncate)
+function FLOAT.log(line)
+    table.insert(FLOAT.log_lines, line)
+    pcall(function()
+        if System.doesFileExist(FLOAT.LOG_PATH) then System.deleteFile(FLOAT.LOG_PATH) end
+        local f = System.openFile(FLOAT.LOG_PATH, FCREATE)
+        local text = table.concat(FLOAT.log_lines, "\n") .. "\n"
+        System.writeFile(f, text, #text)
+        System.closeFile(f)
+    end)
+end
+
 function FLOAT.load()
     if FLOAT.loaded then return end
     -- Any missing/bad model file drops back to normal reflections instead of crashing
     local t0 = Timer.getTime(FLOAT.timer)
+    FLOAT.log("loading...")
     local ok, err = pcall(FLOAT.load_assets)
-    -- how long the models took to load (ux0:/data/RetroFlowFloat/float_load.txt)
-    pcall(function()
-        local f = System.openFile("ux0:/data/RetroFlowFloat/float_load.txt", FCREATE)
-        local line = string.format("load_assets %d ms ok=%s\n", Timer.getTime(FLOAT.timer) - t0, tostring(ok))
-        System.writeFile(f, line, #line)
-        System.closeFile(f)
-    end)
+    FLOAT.log(string.format("load_assets %d ms ok=%s %s", Timer.getTime(FLOAT.timer) - t0, tostring(ok), ok and "" or tostring(err)))
     if not ok then
         FLOAT.loaded = true
         FLOAT.broken = tostring(err)
@@ -14004,6 +14013,7 @@ function FLOAT.load_assets()
         m.body_img = Graphics.loadImage("app0:/DATA/float_" .. kind .. "_body.png")
         Graphics.setImageFilters(m.body_img, FILTER_LINEAR, FILTER_LINEAR)
         for _, name in ipairs(names) do
+            FLOAT.log(kind .. " " .. name .. " @" .. Timer.getTime(FLOAT.timer))
             local vname = name:gsub("^back", "")   -- backrefl uses the refl texture
             vname = vname:match("^(%a+)_") or vname   -- gloss_arrow / backgloss_marks use the gloss texture
             if FLOAT.VARIANT_TEX[vname] then
@@ -14013,6 +14023,7 @@ function FLOAT.load_assets()
                     local tex = FLOAT.VARIANT_TEX[vname]
                     if System.doesFileExist(base .. ".png") then
                         -- baked step: a quad with the highlight pre-multiplied into its own texture
+                        FLOAT.log("  png " .. i)
                         tex = Graphics.loadImage(base .. ".png")
                         Graphics.setImageFilters(tex, FILTER_LINEAR, FILTER_LINEAR)
                         imgs[i] = tex
