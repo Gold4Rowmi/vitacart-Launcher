@@ -18,6 +18,30 @@ Off / On / Floating media.
 3. Optional: run the **Art Manager** from `release/ArtManager/` (one file, Windows/Mac/Linux) to give games real disc
    scans, printed-look stickers, or to choose which media a game is shown as. See `release/ArtManager/README.txt`.
 
+## What you need
+**On the Vita**
+- Custom firmware (HENkaku or h-encore with taiHEN) and VitaShell to install the VPK.
+- RetroFlow Launcher installed and run at least once: Float reads its ROMS, COVERS and BACKGROUNDS folders and seeds its
+  own settings from `ux0:/data/RetroFlow/`. PSP and PS1 games launch through RetroFlow's Adrenaline launcher, so Adrenaline
+  must be set up as for RetroFlow.
+- For the Art Manager only: the [vitacompanion](https://github.com/devnoname120/vitacompanion) plugin (FTP on port 1337,
+  commands on 1338) and the Vita on the same Wi-Fi as your computer.
+
+**Art Manager**: no runtime, no installer. The files in `release/ArtManager/` are self-contained (Go, statically linked).
+- Windows: double-click the `.exe`. SmartScreen may warn once because it is unsigned: "More info", "Run anyway".
+- Mac: `chmod +x RetroFlowFloat-ArtManager-mac-arm64` (or `-mac-intel`), then right-click, Open, to pass Gatekeeper the
+  first time (or `xattr -d com.apple.quarantine <file>`).
+- Linux: `chmod +x RetroFlowFloat-ArtManager-linux` and run it.
+It opens `http://localhost:8765` in your browser and writes only `config.json` and a `cache/` folder next to itself.
+
+**Building from source** (optional)
+- Models and textures: Python 3.10+ with `Pillow` and `numpy` (`pip install Pillow numpy`); `lupa` as well for the viewer
+  build and the offline checks. Run `python fork/floating-media/gen.py fork/floating-media/DATA`.
+- VPK: `python fork/floating-media/rebuild_float.py <previous Float VPK> src/index.lua fork/floating-media/DATA <out.vpk>`
+  (the first build was made from the official RetroFlow v8.5.0 VPK with `fork/floating-media/make_sidebyside.py`).
+- Art Manager: Go 1.22+, `cd fork/floating-media/manager-go && go build` (cross-compile with `GOOS`/`GOARCH`).
+- Deploying to a Vita: `fork/floating-media/deploy.sh` needs `curl` and vitacompanion on the Vita.
+
 ## Source layout
 - `src/index.lua`: the launcher; the Float module starts at `-- FLOATING PHYSICAL MEDIA (fork)`.
 - `fork/floating-media/gen.py`: builds every model and texture into `DATA/` from traced drawings of the real items.

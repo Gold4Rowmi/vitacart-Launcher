@@ -11,6 +11,11 @@ Linux:    chmod +x RetroFlowFloat-ArtManager-linux; ./RetroFlowFloat-ArtManager-
 
 A browser window opens at http://localhost:8765.
 
+Dependencies: none on the computer (the file is self-contained; no Python, Java or runtime).
+Windows may show a SmartScreen warning once (unsigned): More info, Run anyway. On a Mac use
+right-click, Open the first time. On the Vita you need the vitacompanion plugin
+(github.com/devnoname120/vitacompanion) for FTP on port 1337 and commands on 1338.
+
 Needs: the Vita awake, on the same Wi-Fi, with vitacompanion running (FTP 1337, commands
 1338). Put the Vita's IP in the box at the top and press Save. RetroFlow Float must have
 been launched at least once so its game cache exists.
